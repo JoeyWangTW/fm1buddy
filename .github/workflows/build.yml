@@ -1,0 +1,42 @@
+# Builds the CYD firmware and the host box's .uf2. Every run keeps them as a "firmware" artifact; tags (v0.2) also
+# get a release with them attached.
+name: build
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install platformio esptool==4.8.1
+      - run: pio run -e cyd
+      - name: one image for the CYD, bootloader and all
+        run: |
+          mkdir -p build
+          B=.pio/build/cyd
+          esptool.py --chip esp32 merge_bin -o build/fm1buddy-cyd.bin \
+            0x1000 $B/bootloader.bin 0x8000 $B/partitions.bin \
+            0xe000 ~/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin \
+            0x10000 $B/firmware.bin
+      - run: ./usbhost/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware
+          path: |
+            build/fm1buddy-cyd.bin
+            build/fm1buddy-usbhost.uf2
+          if-no-files-found: error
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          files: |
+            build/fm1buddy-cyd.bin
+            build/fm1buddy-usbhost.uf2
+          fail_on_unmatched_files: true

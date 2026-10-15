@@ -1,0 +1,131 @@
+#include "link.h"
+
+Link hub;
+
+void Link::begin() {
+  memset(this, 0, sizeof *this);
+  Serial2.setRxBufferSize(4096);
+  Serial2.begin(LINK_BAUD, SERIAL_8N1, LINK_RX, LINK_TX);
+}
+
+void Link::out(uint8_t type, uint8_t d, const uint8_t* p, uint32_t n) {
+  uint8_t wire[LINK_WIRE];
+  Serial2.write(wire, link_encode(type, d, p, n, wire));
+}
+
+void Link::poll() {
+  // ask until the box answers (it may boot after us); a HELLO from it also re-sends every device
+  if (!box && millis() - helloAt > 1000) {
+    helloAt = millis();
+    out(LINK_HELLO, 0, 0, 0);
+  }
+  int c;
+  while ((c = Serial2.read()) >= 0) {
+    if (link_rx_byte(&rx, (uint8_t)c)) {
+      frame(rx.type, rx.dev, rx.payload, rx.n);
+    }
+  }
+}
+
+void Link::frame(uint8_t type, uint8_t d, const uint8_t* p, uint32_t n) {
+  if (type == LINK_HELLO) {
+    // the box (re)started, or answered ours: either way, MOUNTs for what is plugged in follow
+    box = true;
+    for (uint8_t i = 0; i < LINK_DEVS; i++) {
+      dev[i].on = false;
+      drain(i);
+    }
+    return;
+  }
+  if (d >= LINK_DEVS) {
+    return;
+  }
+  box = true;
+  if (type == LINK_MOUNT && n >= 4) {
+    LinkDev& v = dev[d];
+    v.vid = p[0] | p[1] << 8;
+    v.pid = p[2] | p[3] << 8;
+    uint32_t k = 0;
+    for (uint32_t i = 4; i < n && k < sizeof v.name - 1; i++) {
+      v.name[k++] = (char)p[i];
+    }
+    v.name[k] = 0;
+    if (!v.on) {
+      v.on = true;
+      v.serial = ++mounts;
+      drain(d);
+    }
+  } else if (type == LINK_UMOUNT) {
+    dev[d].on = false;
+    drain(d);
+  } else if (type == LINK_MIDI) {
+    for (uint32_t i = 0; i < n; i++) {
+      midi(d, p[i]);
+    }
+  }
+}
+
+void Link::midi(uint8_t d, uint8_t b) {
+  if (b >= 0xF8) {
+    return;  // realtime: may come anywhere, even inside a SysEx
+  }
+  if (b == 0xF0) {
+    sxOn[d] = true;
+    sxn[d] = 0;
+  }
+  if (!sxOn[d]) {
+    return;
+  }
+  if (b & 0x80 && b != 0xF0 && b != 0xF7) {
+    sxOn[d] = false;  // another status ends it, unfinished
+    return;
+  }
+  if (sxn[d] >= SYSEX_MAX) {
+    sxOn[d] = false;  // too long to be one of ours
+    return;
+  }
+  sx[d][sxn[d]++] = b;
+  if (b == 0xF7) {
+    sxOn[d] = false;
+    if (qw[d] - qr[d] < SYSEX_Q) {
+      uint32_t s = qw[d] % SYSEX_Q;
+      memcpy(q[d][s], sx[d], sxn[d]);
+      qn[d][s] = (uint8_t)sxn[d];
+      qw[d]++;
+    }
+  }
+}
+
+uint32_t Link::sysex(uint8_t d, uint8_t* o) {
+  if (d >= LINK_DEVS || qr[d] == qw[d]) {
+    return 0;
+  }
+  uint32_t s = qr[d] % SYSEX_Q, n = qn[d][s];
+  memcpy(o, q[d][s], n);
+  qr[d]++;
+  return n;
+}
+
+void Link::drain(uint8_t d) {
+  qr[d] = qw[d];
+  sxOn[d] = false;
+}
+
+void Link::send(uint8_t d, const uint8_t* p, uint32_t n) {
+  while (n) {
+    uint32_t k = n > LINK_PAYLOAD ? LINK_PAYLOAD : n;
+    out(LINK_SEND, d, p, k);
+    p += k;
+    n -= k;
+  }
+}
+
+void Link::route(const uint8_t r[LINK_DEVS]) {
+  out(LINK_ROUTE, 0, r, LINK_DEVS);
+}
+
+void Link::routeAll(bool on) {
+  uint8_t r[LINK_DEVS];
+  memset(r, on ? LINK_ROUTE_ALL : 0, sizeof r);
+  route(r);
+}
