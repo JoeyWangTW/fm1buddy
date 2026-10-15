@@ -7,6 +7,7 @@
 
 #include "fm1ota.h"
 #include "link.h"
+#include "midimap.h"
 #include "touch.h"
 
 #define DIR "/fm1"
@@ -39,7 +40,9 @@ static int nFiles, top, sel;
 enum Page { FILES,
             CONFIRM,
             RUN,
-            DEVICES };
+            DEVICES,
+            MAP,
+            RULE };
 static Page page;
 static bool thru = true;  // MIDI between the devices on the hub (saved)
 static Preferences prefs;
@@ -220,8 +223,195 @@ static void drawDevices() {
   } else if (y == HEAD + 6) {
     text("Nothing plugged into the host box", W / 2, 100, 2, C_DIM, MC_DATUM);
   }
-  button(0, 160, thru ? "MIDI THRU: ON" : "MIDI THRU: OFF", thru ? C_OK : C_DIM);
-  button(160, 160, "FILES", C_ACCENT);
+  button(0, 120, thru ? "MIDI THRU: ON" : "MIDI THRU: OFF", thru ? C_OK : C_DIM);
+  button(120, 100, "MAP", C_DIM);
+  button(220, 100, "FILES", C_ACCENT);
+}
+
+// --------------------------------------------------------------------------------------------- mapping ---
+#define CELL_H 44
+static int mapTop, editIdx;  // editIdx -1: a new rule
+static MapRule edit;
+static bool learning;
+static uint32_t learnSeq;
+
+static const uint8_t TYPES[] = {0, MAP_NOTE, MAP_CC, MAP_PC, MAP_AT, MAP_PB};
+
+static const char* typeName(uint8_t t) {
+  return t == MAP_NOTE ? "note" : t == MAP_CC ? "cc"
+                              : t == MAP_PC   ? "pc"
+                              : t == MAP_AT   ? "at"
+                              : t == MAP_PB   ? "pb"
+                                              : 0;
+}
+
+static bool hasNum(uint8_t t) {  // the type has a number a rule can name (a note's, a CC's, a program)
+  return t == MAP_NOTE || t == MAP_CC || t == MAP_PC;
+}
+
+static void drawMap() {
+  body();
+  if (!midimap::count) {
+    text("No mappings", W / 2, 90, 4, C_DIM, MC_DATUM);
+    text("Everything passes as it is.", W / 2, 122, 2, C_DIM, MC_DATUM);
+  }
+  for (int r = 0; r < ROWS && mapTop + r < midimap::count; r++) {
+    int i = mapTop + r, y = HEAD + r * ROW;
+    char s[128], n[4];
+    midimap::format(midimap::rules[i], s, sizeof s);
+    snprintf(n, sizeof n, "%d", i + 1);
+    text(n, 8, y + ROW / 2, 2, C_DIM);
+    text(s, 30, y + ROW / 2, 2, C_FG, ML_DATUM, W - 38);
+    tft.drawFastHLine(0, y + ROW - 1, W, C_BAR);
+  }
+  button(0, 64, "UP", C_DIM);
+  button(64, 64, "DOWN", C_DIM);
+  button(128, 96, "ADD", midimap::count < MAP_RULES ? C_OK : C_BAR);
+  button(224, 96, "BACK", C_ACCENT);
+}
+
+// one field of the rule: its label, its value, and - + to change it
+static void cell(int col, int row, const char* label, const char* value, bool on) {
+  int x = col * 160, y = HEAD + row * CELL_H;
+  tft.fillRect(x, y, 160, CELL_H, C_BG);
+  text(label, x + 6, y + 7, 1, C_DIM);
+  uint16_t c = on ? C_DIM : C_BAR;
+  tft.fillRoundRect(x + 4, y + 14, 34, 28, 5, c);
+  tft.fillRoundRect(x + 122, y + 14, 34, 28, 5, c);
+  tft.setTextFont(4);
+  tft.setTextColor(C_BG, c);
+  tft.setTextDatum(MC_DATUM);
+  tft.drawString("-", x + 21, y + 28);
+  tft.drawString("+", x + 139, y + 28);
+  text(value, x + 80, y + 28, 2, on ? C_FG : C_DIM, MC_DATUM, 80);
+}
+
+static const char* numText(uint8_t v, const char* none, char* b) {
+  if (v == 0 || v == MAP_ANY) {
+    return none;
+  }
+  snprintf(b, 8, "%u", v);
+  return b;
+}
+
+static void drawRule() {
+  body();
+  char b[8];
+  bool drop = edit.outType == MAP_DROP;
+  uint8_t ot = edit.outType ? edit.outType : edit.inType;  // what it becomes
+  cell(0, 0, "FROM", edit.from[0] ? edit.from : "any device", true);
+  cell(0, 1, "CHANNEL", numText(edit.inCh, "any", b), true);
+  cell(0, 2, "TYPE", edit.inType ? typeName(edit.inType) : "any", true);
+  bool inNum = hasNum(edit.inType);
+  cell(0, 3, edit.inType == MAP_NOTE ? "NOTE" : edit.inType == MAP_PC ? "PROGRAM"
+                                                                      : "NUMBER",
+       !inNum ? "-" : edit.inNum == MAP_ANY ? "any"
+                                            : (snprintf(b, sizeof b, "%u", edit.inNum), b),
+       inNum);
+  cell(1, 0, "TO", drop ? "drop it" : edit.to[0] ? edit.to
+                                                 : "as routed",
+       !drop);
+  cell(1, 1, "CHANNEL", drop ? "" : numText(edit.outCh, "same", b), !drop);
+  cell(1, 2, "TYPE", drop ? "" : edit.outType ? typeName(edit.outType)
+                                              : "same",
+       !drop);
+  bool outNum = !drop && (!ot || hasNum(ot));
+  cell(1, 3, ot == MAP_NOTE ? "NOTE" : ot == MAP_PC ? "PROGRAM"
+                                                    : "NUMBER",
+       !outNum ? "-" : edit.outNum == MAP_ANY ? "same"
+                                              : (snprintf(b, sizeof b, "%u", edit.outNum), b),
+       outNum);
+  tft.drawFastVLine(160, HEAD, H - HEAD - FOOT, C_BAR);
+  button(0, 80, learning ? "LISTEN.." : "LEARN", learning ? C_ACCENT : C_DIM);
+  button(80, 80, "DROP", drop ? C_BAD : C_DIM);
+  button(160, 80, editIdx < 0 ? "CANCEL" : "DELETE", C_DIM);
+  button(240, 80, "DONE", C_OK);
+}
+
+// the next device name (or "": any) for FROM/TO
+static void cycleName(char* name, size_t n, int dir) {
+  char opts[LINK_DEVS + 2][24];
+  int k = 0, at = 0;
+  opts[k++][0] = 0;
+  for (int d = 0; d < LINK_DEVS; d++) {
+    if (hub.dev[d].on && hub.dev[d].name[0]) {
+      int i = 0;
+      for (; hub.dev[d].name[i] && i < 23; i++) {
+        opts[k][i] = (char)tolower(hub.dev[d].name[i]);
+      }
+      opts[k++][i] = 0;
+    }
+  }
+  for (int i = 0; i < k; i++) {
+    if (!strcmp(opts[i], name)) {
+      at = i;
+      break;
+    }
+    if (i == k - 1) {  // a name that isn't on the hub now: keep it in the cycle
+      strlcpy(opts[k], name, sizeof opts[k]);
+      at = k++;
+      break;
+    }
+  }
+  strlcpy(name, opts[(at + dir + k) % k], n);
+}
+
+static uint8_t stepNum(uint8_t v, int dir) {  // any, 0..127
+  if (v == MAP_ANY) {
+    return dir > 0 ? 0 : 127;
+  }
+  int n = v + dir;
+  return n < 0 || n > 127 ? MAP_ANY : (uint8_t)n;
+}
+
+static uint8_t stepType(uint8_t t, int dir) {
+  int i = 0;
+  while (i < 6 && TYPES[i] != t) {
+    i++;
+  }
+  return TYPES[(i % 6 + dir + 6) % 6];
+}
+
+static void editCell(int col, int row, int dir) {
+  if (col == 1 && edit.outType == MAP_DROP) {
+    return;
+  }
+  uint8_t ot = edit.outType ? edit.outType : edit.inType;
+  if (row == 0) {
+    cycleName(col ? edit.to : edit.from, sizeof edit.from, dir);
+  } else if (row == 1) {
+    uint8_t& ch = col ? edit.outCh : edit.inCh;
+    ch = (uint8_t)((ch + dir + 17) % 17);
+  } else if (row == 2) {
+    uint8_t& t = col ? edit.outType : edit.inType;
+    t = stepType(t, dir);
+  } else if (col == 0 && hasNum(edit.inType)) {
+    edit.inNum = stepNum(edit.inNum, dir);
+  } else if (col == 1 && (!ot || hasNum(ot))) {
+    edit.outNum = stepNum(edit.outNum, dir);
+  }
+}
+
+static void storeMap() {
+  if (!midimap::save(SD)) {
+    Serial.println("can't write " MAP_FILE);
+  }
+  midimap::push();
+}
+
+// a message came in while LEARN was on: it becomes the rule's left side
+static void learn() {
+  uint8_t st = hub.last[0], kind = st >> 4;
+  int i = 0;
+  for (; hub.dev[hub.lastDev].name[i] && i < (int)sizeof edit.from - 1; i++) {
+    edit.from[i] = (char)tolower(hub.dev[hub.lastDev].name[i]);
+  }
+  edit.from[i] = 0;
+  edit.inCh = (st & 15) + 1;
+  edit.inType = kind == 0x8 || kind == 0x9 ? MAP_NOTE : kind == 0xA ? 0
+                                                                    : kind;
+  edit.inNum = hasNum(edit.inType) ? hub.last[1] : MAP_ANY;
+  learning = false;
 }
 
 static void show(Page p) {
@@ -232,6 +422,10 @@ static void show(Page p) {
     drawConfirm();
   } else if (p == DEVICES) {
     drawDevices();
+  } else if (p == MAP) {
+    drawMap();
+  } else if (p == RULE) {
+    drawRule();
   }
 }
 
@@ -354,8 +548,22 @@ static bool probe() {
   return changed;
 }
 
-static void tap(int x, int y) {
+static void tap(int x, int y, bool repeat = false) {
   bool foot = y >= H - FOOT;
+  if (page == RULE && !foot && y >= HEAD) {
+    int col = x / 160, row = (y - HEAD) / CELL_H, lx = x - col * 160;
+    int dir = lx < 50 ? -1 : lx > 110 ? 1
+                                      : 0;
+    if (dir && row < 4 && (!repeat || row == 1 || row == 3)) {
+      learning = false;
+      editCell(col, row, dir);
+      drawRule();
+    }
+    return;
+  }
+  if (repeat) {
+    return;
+  }
   if (page == FILES) {
     if (foot) {
       if (x < 64) {
@@ -388,20 +596,76 @@ static void tap(int x, int y) {
   } else if (page == RUN && foot) {
     show(FILES);
   } else if (page == DEVICES && foot) {
-    if (x < 160) {
+    if (x < 120) {
       thru = !thru;
       prefs.putBool("thru", thru);
       hub.routeAll(thru);
       show(DEVICES);
+    } else if (x < 220) {
+      show(MAP);
     } else {
       show(FILES);
+    }
+  } else if (page == MAP) {
+    if (foot) {
+      if (x < 64) {
+        mapTop = mapTop - ROWS < 0 ? 0 : mapTop - ROWS;
+      } else if (x < 128) {
+        mapTop = mapTop + ROWS < midimap::count ? mapTop + ROWS : mapTop;
+      } else if (x < 224) {
+        if (midimap::count < MAP_RULES) {
+          memset(&edit, 0, sizeof edit);
+          edit.inNum = edit.outNum = MAP_ANY;
+          editIdx = -1;
+          learning = false;
+          show(RULE);
+        }
+        return;
+      } else {
+        show(DEVICES);
+        return;
+      }
+      show(MAP);
+    } else if (y >= HEAD) {
+      int i = mapTop + (y - HEAD) / ROW;
+      if (i < midimap::count) {
+        edit = midimap::rules[i];
+        editIdx = i;
+        learning = false;
+        show(RULE);
+      }
+    }
+  } else if (page == RULE && foot) {
+    if (x < 80) {
+      learning = !learning;
+      learnSeq = hub.seq;
+      drawRule();
+    } else if (x < 160) {
+      edit.outType = edit.outType == MAP_DROP ? 0 : MAP_DROP;
+      drawRule();
+    } else if (x < 240) {
+      if (editIdx >= 0) {
+        memmove(&midimap::rules[editIdx], &midimap::rules[editIdx + 1],
+                (midimap::count - editIdx - 1) * sizeof(MapRule));
+        midimap::count--;
+        storeMap();
+      }
+      show(MAP);
+    } else {
+      if (editIdx < 0) {
+        midimap::rules[midimap::count++] = edit;
+      } else {
+        midimap::rules[editIdx] = edit;
+      }
+      storeMap();
+      show(MAP);
     }
   }
 }
 
 // the USB serial console, for testing without hands: "shot" sends the screen (tools/shot.py), "tap X Y" taps
 static void console() {
-  static char line[32];
+  static char line[96];
   static int n;
   int c;
   while ((c = Serial.read()) >= 0) {
@@ -427,6 +691,28 @@ static void console() {
         Serial.printf("%s%s %u\n", f.name(), f.isDirectory() ? "/" : "", (unsigned)f.size());
       }
       Serial.println("ls done");
+    } else if (!strncmp(line, "cat ", 4)) {
+      File f = SD.open(line + 4);
+      while (f && f.available()) {
+        Serial.write(f.read());
+      }
+      Serial.println("cat done");
+    } else if (!strncmp(line, "mount ", 6) && isdigit(line[6])) {  // fake the box: "mount 0 nanoKONTROL2"
+      uint8_t p[40] = {0x34, 0x12, 0x78, 0x56};
+      uint32_t k = 4;
+      for (const char* c = line + 8; *c && k < sizeof p; c++) {
+        p[k++] = (uint8_t)*c;
+      }
+      hub.frame(LINK_MOUNT, line[6] - '0', p, k);
+    } else if (!strncmp(line, "umount ", 7)) {
+      hub.frame(LINK_UMOUNT, line[7] - '0', 0, 0);
+    } else if (!strncmp(line, "midi ", 5) && isdigit(line[5])) {  // "midi 0 b0 0a 40"
+      uint8_t p[16];
+      uint32_t k = 0;
+      for (char* c = line + 6; *c && k < sizeof p;) {
+        p[k++] = (uint8_t)strtol(c, &c, 16);
+      }
+      hub.frame(LINK_MIDI, line[5] - '0', p, k);
     } else if (sscanf(line, "tap %d %d", &x, &y) == 2) {
       Serial.printf("tap %d %d\n", x, y);
       tap(x, y);
@@ -447,6 +733,7 @@ void setup() {
   sdOk = SD.begin(5, sdSpi, 20000000);
   if (sdOk) {
     scan();
+    midimap::load(SD);
   }
   header(true);
   show(FILES);
@@ -461,6 +748,14 @@ void loop() {
     box = hub.box;
     hub.routeAll(thru);
   }
+  if (hub.changed) {  // the rules name devices: the box gets them again for what is there now
+    hub.changed = false;
+    midimap::push();
+  }
+  if (page == RULE && learning && hub.seq != learnSeq) {
+    learn();
+    drawRule();
+  }
   if (probe() && (page == DEVICES || page == CONFIRM)) {
     show(page);
   }
@@ -468,9 +763,10 @@ void loop() {
     header();
   }
   int x, y;
-  if (touchTap(x, y)) {
-    Serial.printf("touch %d %d\n", x, y);
-    tap(x, y);
+  bool repeat;
+  if (touchTap(x, y, &repeat)) {
+    Serial.printf("touch %d %d%s\n", x, y, repeat ? " (held)" : "");
+    tap(x, y, repeat);
   }
   console();
   delay(2);

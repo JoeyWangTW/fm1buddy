@@ -17,5 +17,6 @@
 void touchBegin();
 // true while touched; x, y in screen pixels (320x240, landscape)
 bool touchRead(int& x, int& y);
-// true once per touch, when it starts
-bool touchTap(int& x, int& y);
+// true once per touch, when it starts; with repeat, also again and again while it is held (*repeat is
+// then true)
+bool touchTap(int& x, int& y, bool* repeat = 0);

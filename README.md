@@ -4,7 +4,8 @@ Hardware helpers for the M-VAVE FM-1:
 
 - **The USB MIDI host box:** plug USB MIDI controllers (and synths) straight into the FM-1, no computer.
 - **The firmware switcher:** a touch screen with an SD card full of FM-1 firmwares (`.fwsc`). Pick one, and it's
-  installed on the FM-1, no computer.
+  installed on the FM-1, no computer. It also edits **MIDI mapping** on the box: "when CC 10 comes in from the
+  controller, send CC 5 on channel 2".
 
 The switcher is a "Cheap Yellow Display" (ESP32-2432S028R) wired to the host box with three wires. The box works on its
 own too.
@@ -30,10 +31,11 @@ Two ways to build one, both from ready-made parts and with no soldering:
 | Ready after power-on | under a second                                       | about 30 seconds                                                                                        |
 | Devices              | up to 4 on the hub                                   | as many as the hub has ports                                                                            |
 | Firmware switcher    | yes                                                  | no                                                                                                      |
+| MIDI mapping         | yes (set up on the CYD)                              | no                                                                                                      |
 
 Either way you also need the cables you already have: one for the FM-1 (USB-A to USB-C) and one for each controller.
 
-### A: Adafruit Feather RP2040 with USB Type A Host
+### A: [Adafruit Feather RP2040 with USB Type A Host](https://www.adafruit.com/product/5723)
 
 The board has a USB-A socket for devices and powers it (up to 500 mA). Its USB-C socket is only for power and for
 loading the firmware.
@@ -104,10 +106,37 @@ fm1/
   Keep the FM-1 plugged in until it says _Installed_.
 - If an install was cut off, the FM-1 waits in update mode: tap a package and **FINISH** writes it.
 - **DEVICES** shows what's on the hub, and turns **MIDI THRU** (the box's everything-to-everything) on or off. While
-  installing, nothing else reaches the FM-1.
+  installing, nothing else reaches the FM-1. **MAP** goes to the MIDI mapping.
 
 Installing firmware is at your own risk. If the FM-1 won't start, hold **OCT-** while switching it on (the USB rescue)
 and install again.
+
+### MIDI mapping
+
+Everything passes through as it is, until a rule says otherwise. On **DEVICES**, tap **MAP**, then **ADD**:
+
+- The left column is what comes in: **FROM** a device (or any), its **CHANNEL**, **TYPE** (note, cc, pc, at for channel
+  pressure, pb for pitch bend) and **NUMBER** (the note, the CC, the program).
+- The right column is what it becomes: **TO** a device (or wherever MIDI THRU sends it), and the channel, type and
+  number. What you leave at "same" stays as it came in. **DROP** throws the message away instead.
+- **LEARN**, then move a knob (or play a key): the left column fills in with what it sent.
+- Hold **-** or **+** to go faster. **DONE** saves it; tap a rule in the list to change or delete it.
+
+The first rule that matches a message decides; a message no rule matches passes as it is. The value (velocity, CC
+value, pressure) carries over: a CC turned into a note plays it at the CC's value (0 is note off), and a CC turned into
+a program change picks the program from the value, unless the rule names one.
+
+The rules are saved on the SD card in `midimap.txt`, one per line, so you can also write them on a computer:
+
+```
+from nanokontrol2 ch 1 cc 10 -> ch 2 cc 5
+from "launchkey mini" note 36 -> to fm-1 note 38
+cc 1 -> pc
+pb -> drop
+```
+
+A name matches any device whose name contains it (ignoring case). The CYD sends the rules to the box whenever it
+starts and whenever a device comes or goes; the box keeps them while it's on.
 
 ### Building and flashing the CYD
 
@@ -129,8 +158,8 @@ CYD (screen, touch, SD:/fm1)  <-- UART 1 Mbaud -->  Feather RP2040 (USB host)  -
 ```
 
 - `usbhost/` is the box: TinyUSB on Pico-PIO-USB. It routes every device's MIDI to the others, and over its UART it
-  tells the CYD what's plugged in, passes on what each device sends, and takes MIDI to send and routing. The link is
-  in `common/fm1link.h`.
+  tells the CYD what's plugged in, passes on what each device sends, and takes MIDI to send, routing and mapping
+  rules. The link is in `common/fm1link.h`, the mapping in `common/fm1map.h`.
 - `cyd/` is the switcher. `fm1ota.cpp` is the FM-1's update protocol (M-UPGRADE compatible), ported from foma's
   `web/fm1ota.js`: the FM-1 asks for parts of the package with SysEx read requests, and the CYD answers each one
   straight from the SD card. First the running firmware checks the package and starts the update loader; then the
@@ -138,8 +167,10 @@ CYD (screen, touch, SD:/fm1)  <-- UART 1 Mbaud -->  Feather RP2040 (USB host)  -
 
 ```
 common/fm1link.h     the UART link between the two
+common/fm1map.h      the MIDI mapping, as the box does it
 cyd/                 the CYD (PlatformIO, platformio.ini)
 usbhost/             the Feather (Pico SDK, usbhost/build.sh), and pi-setup.sh
+tools/cyd.py         drives the CYD over its USB serial: screenshots, taps, fake devices (for testing)
 ```
 
 ## License

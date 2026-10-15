@@ -5,6 +5,7 @@
  * The CYD (optional) connects to the Feather's TX/RX: it sees every device and what it sends, sends to any
  * of them, and sets the routing (common/fm1link.h). That is how it installs firmware on the FM-1. */
 #include "fm1link.h"
+#include "fm1map.h"
 #include "hardware/clocks.h"
 #include "hardware/irq.h"
 #include "hardware/uart.h"
@@ -53,6 +54,8 @@ static struct {
   uint32_t out_n, out_at; /* LINK_SEND bytes not written yet */
 } dev[CFG_TUH_MIDI];
 static uint8_t route[CFG_TUH_MIDI];
+static map_rule_t rules[MAP_RULES];
+static uint32_t n_rules;
 
 static void send_mount(uint8_t idx) {
   uint8_t p[4 + 31];
@@ -126,13 +129,8 @@ static void forward(void) {
     uint32_t nb = 0;
     while (tuh_midi_packet_read(from, p)) {
       p[0] &= 0x0F; /* every message to each device's first port (cable 0) */
-      for (uint8_t to = 0; to < CFG_TUH_MIDI; to++) {
-        if (to != from && (route[from] >> to & 1) && tuh_midi_mounted(to)) {
-          tuh_midi_packet_write(to, p);
-        }
-      }
       for (uint32_t k = 0; k < CIN_LEN[p[0]]; k++) {
-        bytes[nb++] = p[1 + k];
+        bytes[nb++] = p[1 + k]; /* the CYD sees it as it came */
       }
       if (nb > LINK_PAYLOAD - 3) {
         link_send(LINK_MIDI, from, bytes, nb);
@@ -140,6 +138,29 @@ static void forward(void) {
       }
       gpio_put(PIN_LED, 1);
       led_off_at = to_ms_since_boot(get_absolute_time()) + 20;
+      uint8_t q[4] = {p[0], p[1], p[2], p[3]}, dest = route[from];
+      if (p[0] >= 0x8 && p[0] <= 0xE && n_rules) {
+        uint8_t o[3];
+        uint32_t on;
+        int k = map_apply(rules, n_rules, from, p + 1, o, &on);
+        if (k >= 0 && !on) {
+          continue; /* dropped */
+        }
+        if (k >= 0) {
+          q[0] = o[0] >> 4;
+          q[1] = o[0];
+          q[2] = o[1];
+          q[3] = on > 2 ? o[2] : 0;
+          if (rules[k].to) {
+            dest = rules[k].to;
+          }
+        }
+      }
+      for (uint8_t to = 0; to < CFG_TUH_MIDI; to++) {
+        if (to != from && (dest >> to & 1) && tuh_midi_mounted(to)) {
+          tuh_midi_packet_write(to, q);
+        }
+      }
     }
     if (nb) {
       link_send(LINK_MIDI, from, bytes, nb);
@@ -176,6 +197,16 @@ static void from_link(void) {
     } else if (rx.type == LINK_ROUTE && rx.n >= CFG_TUH_MIDI) {
       for (uint8_t i = 0; i < CFG_TUH_MIDI; i++) {
         route[i] = rx.payload[i];
+      }
+    } else if (rx.type == LINK_MAP) {
+      n_rules = rx.n / sizeof(map_rule_t);
+      if (n_rules > MAP_RULES) {
+        n_rules = MAP_RULES;
+      }
+      for (uint32_t i = 0; i < n_rules; i++) {
+        const uint8_t* b = rx.payload + i * 8;
+        map_rule_t r = {b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]};
+        rules[i] = r;
       }
     } else if (rx.type == LINK_SEND && rx.dev < CFG_TUH_MIDI && tuh_midi_mounted(rx.dev) && rx.n) {
       for (uint32_t k = 0; k < rx.n; k++) {

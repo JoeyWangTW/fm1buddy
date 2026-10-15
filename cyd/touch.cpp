@@ -52,21 +52,30 @@ bool touchRead(int& x, int& y) {
   return x >= 0 && x < 320 && y >= 0 && y < 240;
 }
 
-bool touchTap(int& x, int& y) {
+bool touchTap(int& x, int& y, bool* repeat) {
   static bool down;
-  static uint32_t upAt;
+  static uint32_t upAt, downAt, repAt;
   int tx, ty;
+  uint32_t now = millis();
   if (!touchRead(tx, ty)) {
-    if (down && millis() - upAt > 60) {
+    if (down && now - upAt > 60) {
       down = false;
     }
     return false;
   }
-  upAt = millis();
-  if (down) {
+  upAt = now;
+  if (!down) {
+    down = true;
+    downAt = repAt = now;
+    if (repeat) {
+      *repeat = false;
+    }
+  } else if (repeat && now - downAt > 400 && now - repAt > 70) {
+    repAt = now;
+    *repeat = true;
+  } else {
     return false;
   }
-  down = true;
   x = tx;
   y = ty;
   return true;

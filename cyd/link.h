@@ -20,12 +20,19 @@ class Link {
   LinkDev dev[LINK_DEVS];
   bool box;  // the box answered
   uint32_t mounts;
+  bool changed;  // a device came or went (or the box started): set here, cleared by whoever cares
+  // the newest channel message from any device (for learning a mapping): seq goes up with each
+  uint32_t seq;
+  uint8_t lastDev, last[3];
 
   void begin();
   void poll();  // call often: reads the UART
   void send(uint8_t d, const uint8_t* p, uint32_t n);
   void route(const uint8_t r[LINK_DEVS]);
   void routeAll(bool on);
+  void map(const uint8_t* rules, uint32_t n);
+  // a frame as if from the box (also the console's way of faking one)
+  void frame(uint8_t type, uint8_t d, const uint8_t* p, uint32_t n);
   // the next complete SysEx (F0..F7) from device d, or 0
   uint32_t sysex(uint8_t d, uint8_t* out);
   void drain(uint8_t d);
@@ -39,7 +46,7 @@ class Link {
   uint8_t q[LINK_DEVS][SYSEX_Q][SYSEX_MAX];
   uint8_t qn[LINK_DEVS][SYSEX_Q];
   uint32_t qw[LINK_DEVS], qr[LINK_DEVS];
-  void frame(uint8_t type, uint8_t d, const uint8_t* p, uint32_t n);
+  uint8_t st[LINK_DEVS], data[LINK_DEVS][2], nd[LINK_DEVS];  // channel messages, as they come in
   void midi(uint8_t d, uint8_t b);
   void out(uint8_t type, uint8_t d, const uint8_t* p, uint32_t n);
 };

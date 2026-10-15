@@ -31,6 +31,7 @@ void Link::frame(uint8_t type, uint8_t d, const uint8_t* p, uint32_t n) {
   if (type == LINK_HELLO) {
     // the box (re)started, or answered ours: either way, MOUNTs for what is plugged in follow
     box = true;
+    changed = true;
     for (uint8_t i = 0; i < LINK_DEVS; i++) {
       dev[i].on = false;
       drain(i);
@@ -50,6 +51,7 @@ void Link::frame(uint8_t type, uint8_t d, const uint8_t* p, uint32_t n) {
       v.name[k++] = (char)p[i];
     }
     v.name[k] = 0;
+    changed = true;
     if (!v.on) {
       v.on = true;
       v.serial = ++mounts;
@@ -57,6 +59,7 @@ void Link::frame(uint8_t type, uint8_t d, const uint8_t* p, uint32_t n) {
     }
   } else if (type == LINK_UMOUNT) {
     dev[d].on = false;
+    changed = true;
     drain(d);
   } else if (type == LINK_MIDI) {
     for (uint32_t i = 0; i < n; i++) {
@@ -68,6 +71,21 @@ void Link::frame(uint8_t type, uint8_t d, const uint8_t* p, uint32_t n) {
 void Link::midi(uint8_t d, uint8_t b) {
   if (b >= 0xF8) {
     return;  // realtime: may come anywhere, even inside a SysEx
+  }
+  // channel messages (with running status)
+  if (b >= 0x80) {
+    st[d] = b < 0xF0 ? b : 0;
+    nd[d] = 0;
+  } else if (st[d]) {
+    data[d][nd[d]++] = b;
+    if (nd[d] == ((st[d] >> 4) == 0xC || (st[d] >> 4) == 0xD ? 1 : 2)) {
+      lastDev = d;
+      last[0] = st[d];
+      last[1] = data[d][0];
+      last[2] = nd[d] > 1 ? data[d][1] : 0;
+      seq++;
+      nd[d] = 0;
+    }
   }
   if (b == 0xF0) {
     sxOn[d] = true;
@@ -122,6 +140,10 @@ void Link::send(uint8_t d, const uint8_t* p, uint32_t n) {
 
 void Link::route(const uint8_t r[LINK_DEVS]) {
   out(LINK_ROUTE, 0, r, LINK_DEVS);
+}
+
+void Link::map(const uint8_t* rules, uint32_t n) {
+  out(LINK_MAP, 0, rules, n);
 }
 
 void Link::routeAll(bool on) {

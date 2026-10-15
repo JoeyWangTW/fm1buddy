@@ -12,6 +12,7 @@
  *   LINK_HELLO   dev 0: answer with HELLO, then a MOUNT for every device that is there
  *   LINK_SEND    MIDI bytes for the device (cable 0)
  *   LINK_ROUTE   dev 0, payload: LINK_DEVS bytes, which devices each device's messages go to (bit n = dev n)
+ *   LINK_MAP     dev 0, payload: the mapping rules (common/fm1map.h), 8 bytes each, all of them (none: clear)
  *
  * A device is the box's TinyUSB MIDI index (0..LINK_DEVS-1): it stays the same while the device is
  * plugged in, and is not the same device after a LINK_UMOUNT. */
@@ -34,7 +35,8 @@ enum {
   LINK_UMOUNT = 3,
   LINK_MIDI = 4,
   LINK_SEND = 5,
-  LINK_ROUTE = 6
+  LINK_ROUTE = 6,
+  LINK_MAP = 7
 };
 
 static inline uint8_t link_crc8(const uint8_t* p, uint32_t n) {
