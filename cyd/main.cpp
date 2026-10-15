@@ -1,5 +1,6 @@
 // fm1buddy: pick a firmware from SD:/fm1 and install it on the FM-1, through the USB MIDI host box
 #include <Arduino.h>
+#include <Preferences.h>
 #include <SD.h>
 #include <SPI.h>
 #include <TFT_eSPI.h>
@@ -40,7 +41,8 @@ enum Page { FILES,
             RUN,
             DEVICES };
 static Page page;
-static bool thru = true;  // MIDI between the devices on the hub
+static bool thru = true;  // MIDI between the devices on the hub (saved)
+static Preferences prefs;
 
 // what each device on the hub answered (FM-1s only), by its mount
 static struct {
@@ -293,7 +295,8 @@ static void runInstall(bool resume) {
 static void scan() {
   nFiles = top = 0;
   if (!SD.exists(DIR)) {
-    SD.mkdir(DIR);  // so there is a place for the packages next time
+    bool made = SD.mkdir(DIR);  // so there is a place for the packages next time
+    Serial.printf("mkdir " DIR ": %s\n", made ? "ok" : "failed");
   }
   File dir = SD.open(DIR);
   if (!dir || !dir.isDirectory()) {
@@ -387,6 +390,7 @@ static void tap(int x, int y) {
   } else if (page == DEVICES && foot) {
     if (x < 160) {
       thru = !thru;
+      prefs.putBool("thru", thru);
       hub.routeAll(thru);
       show(DEVICES);
     } else {
@@ -417,6 +421,12 @@ static void console() {
         tft.readRect(0, r, W, 1, row);
         Serial.write((const uint8_t*)row, sizeof row);
       }
+    } else if (!strncmp(line, "ls", 2)) {
+      File dir = SD.open(line[2] == ' ' ? line + 3 : "/");
+      for (File f = dir ? dir.openNextFile() : File(); f; f = dir.openNextFile()) {
+        Serial.printf("%s%s %u\n", f.name(), f.isDirectory() ? "/" : "", (unsigned)f.size());
+      }
+      Serial.println("ls done");
     } else if (sscanf(line, "tap %d %d", &x, &y) == 2) {
       Serial.printf("tap %d %d\n", x, y);
       tap(x, y);
@@ -430,6 +440,8 @@ void setup() {
   tft.setRotation(1);
   tft.fillScreen(C_BG);
   touchBegin();
+  prefs.begin("fm1buddy");
+  thru = prefs.getBool("thru", true);
   hub.begin();
   sdSpi.begin(18, 19, 23, 5);
   sdOk = SD.begin(5, sdSpi, 20000000);
@@ -438,7 +450,8 @@ void setup() {
   }
   header(true);
   show(FILES);
-  Serial.printf("fm1buddy: SD %s, %d files\n", sdOk ? "ok" : "missing", nFiles);
+  Serial.printf("fm1buddy: SD %s (type %d, %u MB, %u MB used), %d files\n", sdOk ? "ok" : "missing", SD.cardType(),
+                (unsigned)(SD.cardSize() >> 20), (unsigned)(SD.usedBytes() >> 20), nFiles);
 }
 
 void loop() {
