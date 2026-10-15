@@ -88,10 +88,10 @@ USB-C) to `VIN` on the CYD's **P1** connector.
 ### The SD card
 
 Put FM-1 firmware packages (`.fwsc`, from the [FM-1 Firmware Hub](https://fm1.designburgapps.com) or a
-[foma](https://github.com/konsumer/foma) build) in a folder called `fx1` on a FAT32 card:
+[foma](https://github.com/konsumer/foma) build) in a folder called `fm1` on a FAT32 card:
 
 ```
-fx1/
+fm1/
   felucca-1.0.3.fwsc
   fomajam-0.1.fwsc
   stock-v15.fwsc
@@ -99,7 +99,7 @@ fx1/
 
 ### Using it
 
-- **FILES** lists `fx1/`, with each package's identity (`FM-1_961`). The top right shows the FM-1 on the hub.
+- **FILES** lists `fm1/`, with each package's identity (`FM-1_961`). The top right shows the FM-1 on the hub.
 - Tap a package, then **INSTALL**. It checks that the package is for the FM-1 that is plugged in, then installs it.
   Keep the FM-1 plugged in until it says _Installed_.
 - If an install was cut off, the FM-1 waits in update mode: tap a package and **FINISH** writes it.
@@ -125,7 +125,7 @@ If the colors look inverted, your CYD is the two-USB-port revision: uncomment `T
 ## How it works
 
 ```
-CYD (screen, touch, SD:/fx1)  <-- UART 1 Mbaud -->  Feather RP2040 (USB host)  -->  hub  -->  FM-1, controllers
+CYD (screen, touch, SD:/fm1)  <-- UART 1 Mbaud -->  Feather RP2040 (USB host)  -->  hub  -->  FM-1, controllers
 ```
 
 - `usbhost/` is the box: TinyUSB on Pico-PIO-USB. It routes every device's MIDI to the others, and over its UART it

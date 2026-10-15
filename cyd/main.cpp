@@ -1,4 +1,4 @@
-// fm1buddy: pick a firmware from SD:/fx1 and install it on the FM-1, through the USB MIDI host box
+// fm1buddy: pick a firmware from SD:/fm1 and install it on the FM-1, through the USB MIDI host box
 #include <Arduino.h>
 #include <SD.h>
 #include <SPI.h>
@@ -8,7 +8,7 @@
 #include "link.h"
 #include "touch.h"
 
-#define DIR "/fx1"
+#define DIR "/fm1"
 #define MAX_FILES 64
 #define W 320
 #define H 240
@@ -292,6 +292,9 @@ static void runInstall(bool resume) {
 // ------------------------------------------------------------------------------------------- files ---
 static void scan() {
   nFiles = top = 0;
+  if (!SD.exists(DIR)) {
+    SD.mkdir(DIR);  // so there is a place for the packages next time
+  }
   File dir = SD.open(DIR);
   if (!dir || !dir.isDirectory()) {
     return;
@@ -392,8 +395,37 @@ static void tap(int x, int y) {
   }
 }
 
+// the USB serial console, for testing without hands: "shot" sends the screen (tools/shot.py), "tap X Y" taps
+static void console() {
+  static char line[32];
+  static int n;
+  int c;
+  while ((c = Serial.read()) >= 0) {
+    if (c != '\n' && c != '\r') {
+      if (n < (int)sizeof line - 1) {
+        line[n++] = (char)c;
+      }
+      continue;
+    }
+    line[n] = 0;
+    n = 0;
+    int x, y;
+    if (!strcmp(line, "shot")) {
+      static uint16_t row[W];
+      Serial.printf("SHOT %d %d\n", W, H);
+      for (int r = 0; r < H; r++) {
+        tft.readRect(0, r, W, 1, row);
+        Serial.write((const uint8_t*)row, sizeof row);
+      }
+    } else if (sscanf(line, "tap %d %d", &x, &y) == 2) {
+      Serial.printf("tap %d %d\n", x, y);
+      tap(x, y);
+    }
+  }
+}
+
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(460800);
   tft.init();
   tft.setRotation(1);
   tft.fillScreen(C_BG);
@@ -406,6 +438,7 @@ void setup() {
   }
   header(true);
   show(FILES);
+  Serial.printf("fm1buddy: SD %s, %d files\n", sdOk ? "ok" : "missing", nFiles);
 }
 
 void loop() {
@@ -423,7 +456,9 @@ void loop() {
   }
   int x, y;
   if (touchTap(x, y)) {
+    Serial.printf("touch %d %d\n", x, y);
     tap(x, y);
   }
+  console();
   delay(2);
 }
