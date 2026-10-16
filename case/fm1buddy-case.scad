@@ -39,6 +39,8 @@ bat = [36, 29, 4.75];  // Adafruit 500 mAh (1578); 1200 mAh (258): [34, 62, 5]; 
 switch_hole = [9, 4.2];  // a mini slide switch (SS12D00), in line with the battery
 
 $fn = 48;
+LID_COLOR = "#ff8a3d";   // the installer page's orange
+BASE_COLOR = "#36b37e";
 PCB = 1.57;
 eps = 0.01;
 
@@ -276,7 +278,7 @@ module stand_ins() {
     if (has_oled) {
       translate([0, 0, oled_z]) color("#333") cube([F.x, F.y, PCB]);
       color("#111") cube2(OLED_GLASS[0] + [0, 0, oled_z], OLED_GLASS[1] + [0, 0, oled_z]);
-      for (b = OLED_BTN) translate([b.x - 2.3, b.y - 1.4, oled_z + PCB]) color("white") cube([4.6, 2.8, OLED_BTN_TOP - PCB]);
+      for (b = OLED_BTN) translate([b.x - 2.3, b.y - 1.4, oled_z + PCB]) color("#bbb") cube([4.6, 2.8, OLED_BTN_TOP - PCB]);
     }
     if (battery) translate([bat_c.x - bat.x / 2, bat_c.y - bat.y / 2, 0.3]) color("silver") cube(bat);
   }
@@ -295,16 +297,16 @@ cut() if (config == "cyd") {
   if (part == "base") cyd_base();
   if (part == "lid") translate([0, 0, lid_t]) mirror([0, 0, 1]) cyd_lid();
   if (part == "preview") {
-    cyd_base();
+    color(BASE_COLOR) cyd_base();
     stand_ins();
-    translate([0, 0, c_inner_h + 25]) color("orange", 0.9) cyd_lid();
+    translate([0, 0, c_inner_h + 25]) color(LID_COLOR) cyd_lid();
   }
 } else {
   if (part == "base") feather_base();
   if (part == "lid") translate([0, 0, lid_t]) mirror([0, 0, 1]) feather_lid();
   if (part == "preview") {
-    feather_base();
+    color(BASE_COLOR) feather_base();
     stand_ins();
-    translate([0, 0, inner_h + 20]) color("orange", 0.9) feather_lid();
+    translate([0, 0, inner_h + 20]) color(LID_COLOR) feather_lid();
   }
 }
