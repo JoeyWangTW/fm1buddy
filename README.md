@@ -10,6 +10,9 @@ Hardware helpers for the M-VAVE FM-1:
 The switcher is either a 128x64 OLED and buttons on the box itself (one board, a little soldering), or a "Cheap Yellow
 Display" touch screen (ESP32-2432S028R) wired to the box with three wires. The box works on its own too.
 
+**Install it from the browser:** <https://konsumer.github.io/fm1buddy/>: step by step, for each board, with the latest
+release.
+
 ## Why a host box
 
 The FM-1's USB port only connects to a computer: the FM-1 is a USB _device_, and so is a USB controller, and two
@@ -201,6 +204,12 @@ lib/Pico-PIO-USB/    Pico-PIO-USB 0.7.2 (MIT), here so PlatformIO doesn't pull a
 tools/pi-setup.sh    the Raspberry Pi box
 tools/cyd.py         drives the CYD over its USB serial: screenshots, taps, fake devices (for testing)
 ```
+
+## The installer page
+
+`site/` is the installer page. `.github/workflows/pages.yml` publishes it on GitHub Pages (Settings → Pages → Source:
+GitHub Actions), with the latest release's firmware copied next to it, after every build. To try it here, put builds
+in `site/fw/` and run `npm run site`.
 
 ## License
 

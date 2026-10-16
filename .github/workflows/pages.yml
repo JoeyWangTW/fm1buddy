@@ -1,0 +1,48 @@
+# The installer page (site/) on GitHub Pages, with the latest release's firmware next to it (site/fw/).
+# Settings -> Pages -> Source: GitHub Actions. It runs when site/ changes, after every build (so a new release
+# shows up), and by hand.
+name: pages
+on:
+  push:
+    branches: [main]
+    paths: ['site/**', '.github/workflows/pages.yml']
+  workflow_run:
+    workflows: [build]
+    types: [completed]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  deploy:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: the latest release's firmware
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p site/fw
+          if tag=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName 2>/dev/null); then
+            gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir site/fw \
+              --pattern fm1buddy-cyd.bin --pattern fm1buddy-feather.uf2
+            jq -n --arg tag "$tag" '{tag: $tag}' > site/fw/version.json
+            jq -n --arg v "$tag" '{name: "fm1buddy", version: $v, new_install_prompt_erase: true,
+              builds: [{chipFamily: "ESP32", parts: [{path: "fm1buddy-cyd.bin", offset: 0}]}]}' > site/fw/manifest.json
+          else
+            echo "no release yet: the page says so"
+          fi
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4

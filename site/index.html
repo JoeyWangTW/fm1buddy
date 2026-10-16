@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>fm1buddy installer</title>
+    <meta name="description" content="Install fm1buddy on the Feather USB host box and the Cheap Yellow Display, from the browser." />
+    <link rel="stylesheet" href="style.css" />
+    <script type="module" src="https://unpkg.com/esp-web-tools@10.4.0/dist/web/install-button.js?module"></script>
+  </head>
+  <body>
+    <header>
+      <div class="wrap">
+        <h1>fm1buddy</h1>
+        <p class="lede">Plug USB MIDI controllers straight into the M-VAVE FM-1, map their MIDI, and switch the FM-1's firmware, with no computer.</p>
+        <p id="release" class="release">Looking for the latest release…</p>
+      </div>
+    </header>
+
+    <main class="wrap">
+      <nav class="tabs" role="tablist">
+        <button role="tab" data-tab="box" aria-selected="true">USB host box</button>
+        <button role="tab" data-tab="oled">Box with a screen</button>
+        <button role="tab" data-tab="cyd">Touch screen (CYD)</button>
+      </nav>
+
+      <!-- the Feather on its own -->
+      <section id="box" class="panel">
+        <p class="what">An <a href="https://www.adafruit.com/product/5723">Adafruit Feather RP2040 with USB Type A Host</a>, a USB hub in its USB-A socket, and the FM-1 and your controllers on the hub. Whatever any of them sends goes to all of the others.</p>
+        <h2>You need</h2>
+        <ul>
+          <li>the Feather RP2040 with USB Type A Host</li>
+          <li>a USB hub (one with its own power supply if you plug in more than a couple of things)</li>
+          <li>a USB-C cable that carries data, and a computer for this once</li>
+          <li>afterwards: a USB-C charger or power bank</li>
+        </ul>
+        <h2>Install</h2>
+        <ol class="steps">
+          <li>
+            <strong>Get the firmware.</strong>
+            <div class="actions"><a class="button fw-feather" download>Download fm1buddy-feather.uf2</a></div>
+          </li>
+          <li><strong>Hold the Feather's BOOT button</strong> while you plug its USB-C into the computer, then let go. A drive called <code>RPI-RP2</code> appears.</li>
+          <li>
+            <strong>Copy the file onto <code>RPI-RP2</code>.</strong> Drag it there, or let this page do it (Chrome or Edge): pick the <code>RPI-RP2</code> drive when asked.
+            <div class="actions"><button class="button secondary copy-uf2">Copy it to RPI-RP2</button></div>
+            <p class="note copy-status" hidden></p>
+          </li>
+          <li>The drive disappears and the Feather restarts: <strong>it's ready.</strong> (A new drive, <code>fm1buddy</code>, shows up: that's for the firmware switcher.)</li>
+          <li><strong>Plug in</strong> the hub, then the FM-1 and your controllers. Power the Feather's USB-C from a charger, a power bank or a computer. Its red LED blinks when MIDI goes through.</li>
+        </ol>
+        <p class="note">To update later, do the same again: your settings and files stay.</p>
+      </section>
+
+      <!-- the Feather with an OLED FeatherWing -->
+      <section id="oled" class="panel" hidden>
+        <p class="what">The USB host box with an <a href="https://www.adafruit.com/product/4650">Adafruit 128x64 OLED FeatherWing</a> on top: it installs FM-1 firmwares that you copy onto it, and edits the MIDI mapping, with its three buttons.</p>
+        <h2>You need</h2>
+        <ul>
+          <li>everything for the <a href="#box" data-go="box">USB host box</a></li>
+          <li>the 128x64 OLED FeatherWing</li>
+          <li>headers to stack them: male on the Feather, female on the FeatherWing (or stacking headers), and a soldering iron</li>
+          <li>optional: an <a href="https://www.adafruit.com/product/2922">Adalogger FeatherWing</a> for an SD card (the Feather holds about 10 firmwares by itself)</li>
+        </ul>
+        <h2>Build it</h2>
+        <ol class="steps">
+          <li><strong>Solder the headers</strong> onto the Feather and the FeatherWing, and stack the FeatherWing on top (its buttons up).</li>
+          <li><strong>Install the firmware</strong> as for the <a href="#box" data-go="box">USB host box</a>: it's the same file.</li>
+          <li><strong>Add FM-1 firmwares.</strong> With the Feather on the computer, open the <code>fm1buddy</code> drive and copy <code>.fwsc</code> packages into its <code>fm1</code> folder (from the <a href="https://fm1.designburgapps.com">FM-1 Firmware Hub</a>, or your own <a href="https://github.com/konsumer/foma">foma</a> builds).</li>
+          <li><strong>Plug in</strong> the hub and the FM-1. The screen shows the FM-1 it found, top right.</li>
+        </ol>
+        <h2>Use it</h2>
+        <table>
+          <tr>
+            <th>A</th>
+            <td>up</td>
+          </tr>
+          <tr>
+            <th>B</th>
+            <td>OK (hold it: back)</td>
+          </tr>
+          <tr>
+            <th>C</th>
+            <td>down</td>
+          </tr>
+        </table>
+        <ul>
+          <li><strong>Install firmware:</strong> pick a package, and OK installs it on the FM-1 (after checking it's for that model). Keep the FM-1 plugged in until it says <em>Installed</em>.</li>
+          <li><strong>MIDI map:</strong> pick a rule or <em>add a rule</em>; OK on a field changes it with up and down. <em>learn</em> fills in what you play next.</li>
+          <li><strong>MIDI thru</strong> turns the everything-to-everything on or off.</li>
+        </ul>
+      </section>
+
+      <!-- the CYD -->
+      <section id="cyd" class="panel" hidden>
+        <p class="what">An ESP32-2432S028R "Cheap Yellow Display" touch screen, wired to the USB host box: it installs FM-1 firmwares from its SD card, and edits the MIDI mapping.</p>
+        <h2>You need</h2>
+        <ul>
+          <li>the <a href="#box" data-go="box">USB host box</a>, installed</li>
+          <li>an ESP32-2432S028R "Cheap Yellow Display", and the 4-wire cable that comes with it</li>
+          <li>a microSD card (FAT32)</li>
+          <li>Chrome or Edge on a computer, and the CYD's USB cable</li>
+        </ul>
+        <h2>Install</h2>
+        <ol class="steps">
+          <li><strong>Plug the CYD into the computer</strong> with its USB cable.</li>
+          <li>
+            <strong>Install:</strong> press the button, pick the CYD's port (<em>USB Serial</em>, <em>CH340</em> or <em>usbserial</em>), and confirm.
+            <div class="actions">
+              <esp-web-install-button class="fw-cyd">
+                <button slot="activate" class="button">Install on the CYD</button>
+                <span slot="unsupported" class="note">This browser can't: use Chrome or Edge on a computer (or <a class="fw-cyd-bin" download>download the .bin</a> for esptool).</span>
+                <span slot="not-allowed" class="note">The page must be opened over https.</span>
+              </esp-web-install-button>
+            </div>
+            <p class="note">No port in the list? Windows and older macOS may need the <a href="https://www.wch-ic.com/downloads/CH341SER_EXE.html">CH340 driver</a>. If it can't connect, hold the CYD's BOOT button while it starts.</p>
+          </li>
+          <li><strong>The SD card:</strong> make a folder called <code>fm1</code> on it, and copy FM-1 firmware packages (<code>.fwsc</code>) into it. Put it in the CYD.</li>
+          <li>
+            <strong>Wire it</strong> to the Feather, from the CYD's <code>CN1</code> connector:
+            <table>
+              <tr>
+                <th>CYD CN1</th>
+                <th>Feather</th>
+              </tr>
+              <tr>
+                <td>GND</td>
+                <td>GND</td>
+              </tr>
+              <tr>
+                <td>IO22</td>
+                <td>TX</td>
+              </tr>
+              <tr>
+                <td>IO27</td>
+                <td>RX</td>
+              </tr>
+              <tr>
+                <td>3.3V</td>
+                <td>(not connected)</td>
+              </tr>
+            </table>
+            Power the CYD from its own USB (a 2-port charger powers both).
+          </li>
+          <li><strong>Turn them on.</strong> The top right of the CYD shows the FM-1 on the hub: tap a package, then <em>INSTALL</em>. <em>DEVICES</em> → <em>MAP</em> is the MIDI mapping.</li>
+        </ol>
+      </section>
+
+      <section class="notes">
+        <h2>Good to know</h2>
+        <ul>
+          <li>The FM-1 only takes firmware over USB, so installing always goes through the host box.</li>
+          <li>Installing firmware is at your own risk. If the FM-1 won't start, hold <strong>OCT-</strong> while switching it on (the USB rescue), and install again.</li>
+          <li>If a controller sends back everything it receives ("MIDI thru" or "echo" in its settings), turn that off, or messages go round in circles.</li>
+        </ul>
+      </section>
+    </main>
+
+    <footer class="wrap"><a id="source" href="https://github.com/konsumer/fm1buddy">Source, and how it works</a> · GPL-3.0</footer>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
