@@ -236,6 +236,57 @@ int fm1::find(bool ota, Fm1Id& id) {
   return -1;
 }
 
+static struct {
+  uint32_t serial;  // the mount it was asked on (0: not yet)
+  uint32_t askAt;
+  bool ok;
+  Fm1Id id;
+} ids[LINK_DEVS];
+
+bool fm1::watch() {
+  bool changed = false;
+  for (int d = 0; d < LINK_DEVS; d++) {
+    if (!hub.dev[d].on) {
+      if (ids[d].serial) {
+        ids[d].serial = 0;
+        ids[d].ok = false;
+        changed = true;
+      }
+      continue;
+    }
+    if (ids[d].serial == hub.dev[d].serial) {
+      continue;
+    }
+    if (!ids[d].askAt) {
+      ids[d].askAt = millis();
+      changed = true;  // a new device: the list changes
+    } else if (millis() - ids[d].askAt > 1500) {
+      ids[d].serial = hub.dev[d].serial;
+      ids[d].askAt = 0;
+      ids[d].ok = candidate(d) && handshake(d, ids[d].id);
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+const Fm1Id* fm1::known(int d) {
+  return d >= 0 && d < LINK_DEVS && hub.dev[d].on && ids[d].ok && ids[d].serial == hub.dev[d].serial ? &ids[d].id : 0;
+}
+
+int fm1::current() {
+  for (int d = 0; d < LINK_DEVS; d++) {
+    if (known(d)) {
+      return d;
+    }
+  }
+  return -1;
+}
+
+void fm1::forget() {
+  memset(ids, 0, sizeof ids);
+}
+
 static int waitFor(bool ota, Fm1Id& id, uint32_t ms) {
   uint32_t start = millis();
   while (millis() - start < ms) {

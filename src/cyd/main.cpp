@@ -47,14 +47,6 @@ static Page page;
 static bool thru = true;  // MIDI between the devices on the hub (saved)
 static Preferences prefs;
 
-// what each device on the hub answered (FM-1s only), by its mount
-static struct {
-  uint32_t serial;  // the mount it was asked on (0: not yet)
-  uint32_t askAt;
-  bool ok;
-  Fm1Id id;
-} ids[LINK_DEVS];
-
 // ------------------------------------------------------------------------------------------ drawing ---
 static void text(const char* s, int x, int y, int font, uint16_t color, uint8_t datum = ML_DATUM, int maxW = W) {
   char buf[64];
@@ -107,32 +99,23 @@ static void button(int x, int w, const char* label, uint16_t color) {
   tft.drawString(label, x + w / 2, H - FOOT / 2);
 }
 
-static int fm1Dev() {  // the device that answered as an FM-1 (or its loader), -1 if none
-  for (int d = 0; d < LINK_DEVS; d++) {
-    if (hub.dev[d].on && ids[d].ok && ids[d].serial == hub.dev[d].serial) {
-      return d;
-    }
-  }
-  return -1;
-}
-
 static bool fits(int d) {  // the selected package is for device d's model
   Pkg pkg;
   strlcpy(pkg.product, files[sel].product, sizeof pkg.product);
-  return pkg.fits(ids[d].id);
+  return pkg.fits(*fm1::known(d));
 }
 
 static char shownStatus[48];
 
 static void header(bool force = false) {
   char s[48];
-  int d = fm1Dev();
+  int d = fm1::current();
   if (!hub.box) {
     strlcpy(s, "no host box", sizeof s);
   } else if (d < 0) {
     strlcpy(s, "no FM-1", sizeof s);
   } else {
-    strlcpy(s, ids[d].id.text, sizeof s);
+    strlcpy(s, fm1::known(d)->text, sizeof s);
   }
   if (!force && !strcmp(s, shownStatus)) {
     return;
@@ -176,17 +159,17 @@ static void drawFiles() {
 
 static void drawConfirm() {
   body();
-  int d = fm1Dev();
+  int d = fm1::current();
   text(files[sel].name, 8, HEAD + 20, 4, C_FG, ML_DATUM, W - 16);
   text("package", 8, HEAD + 54, 2, C_DIM);
   text(files[sel].product, 100, HEAD + 54, 2, C_ACCENT);
   text("device", 8, HEAD + 78, 2, C_DIM);
-  text(d < 0 ? "none" : ids[d].id.text, 100, HEAD + 78, 2, d < 0 ? C_BAD : C_OK);
+  text(d < 0 ? "none" : fm1::known(d)->text, 100, HEAD + 78, 2, d < 0 ? C_BAD : C_OK);
   const char* label = "INSTALL";
   bool can = d >= 0;
   if (d < 0) {
     text("Plug the FM-1 into the host box's hub.", 8, HEAD + 120, 2, C_DIM);
-  } else if (ids[d].id.ota()) {
+  } else if (fm1::known(d)->ota()) {
     label = "FINISH";
     text("The FM-1 is in update mode: FINISH", 8, HEAD + 120, 2, C_FG);
     text("writes this package.", 8, HEAD + 140, 2, C_FG);
@@ -213,8 +196,8 @@ static void drawDevices() {
     snprintf(s, sizeof s, "%04X:%04X", hub.dev[d].vid, hub.dev[d].pid);
     text(hub.dev[d].name[0] ? hub.dev[d].name : "(no name)", 8, y + 10, 2, C_FG, ML_DATUM, 190);
     text(s, W - 8, y + 10, 2, C_DIM, MR_DATUM);
-    if (ids[d].ok && ids[d].serial == hub.dev[d].serial) {
-      text(ids[d].id.text, 8, y + 28, 2, C_OK);
+    if (fm1::known(d)) {
+      text(fm1::known(d)->text, 8, y + 28, 2, C_OK);
     }
     y += 42;
   }
@@ -234,20 +217,6 @@ static int mapTop, editIdx;  // editIdx -1: a new rule
 static MapRule edit;
 static bool learning;
 static uint32_t learnSeq;
-
-static const uint8_t TYPES[] = {0, MAP_NOTE, MAP_CC, MAP_PC, MAP_AT, MAP_PB};
-
-static const char* typeName(uint8_t t) {
-  return t == MAP_NOTE ? "note" : t == MAP_CC ? "cc"
-                              : t == MAP_PC   ? "pc"
-                              : t == MAP_AT   ? "at"
-                              : t == MAP_PB   ? "pb"
-                                              : 0;
-}
-
-static bool hasNum(uint8_t t) {  // the type has a number a rule can name (a note's, a CC's, a program)
-  return t == MAP_NOTE || t == MAP_CC || t == MAP_PC;
-}
 
 static void drawMap() {
   body();
@@ -286,41 +255,14 @@ static void cell(int col, int row, const char* label, const char* value, bool on
   text(value, x + 80, y + 28, 2, on ? C_FG : C_DIM, MC_DATUM, 80);
 }
 
-static const char* numText(uint8_t v, const char* none, char* b) {
-  if (v == 0 || v == MAP_ANY) {
-    return none;
-  }
-  snprintf(b, 8, "%u", v);
-  return b;
-}
-
 static void drawRule() {
   body();
   char b[8];
   bool drop = edit.outType == MAP_DROP;
-  uint8_t ot = edit.outType ? edit.outType : edit.inType;  // what it becomes
-  cell(0, 0, "FROM", edit.from[0] ? edit.from : "any device", true);
-  cell(0, 1, "CHANNEL", numText(edit.inCh, "any", b), true);
-  cell(0, 2, "TYPE", edit.inType ? typeName(edit.inType) : "any", true);
-  bool inNum = hasNum(edit.inType);
-  cell(0, 3, edit.inType == MAP_NOTE ? "NOTE" : edit.inType == MAP_PC ? "PROGRAM"
-                                                                      : "NUMBER",
-       !inNum ? "-" : edit.inNum == MAP_ANY ? "any"
-                                            : (snprintf(b, sizeof b, "%u", edit.inNum), b),
-       inNum);
-  cell(1, 0, "TO", drop ? "drop it" : edit.to[0] ? edit.to
-                                                 : "as routed",
-       !drop);
-  cell(1, 1, "CHANNEL", drop ? "" : numText(edit.outCh, "same", b), !drop);
-  cell(1, 2, "TYPE", drop ? "" : edit.outType ? typeName(edit.outType)
-                                              : "same",
-       !drop);
-  bool outNum = !drop && (!ot || hasNum(ot));
-  cell(1, 3, ot == MAP_NOTE ? "NOTE" : ot == MAP_PC ? "PROGRAM"
-                                                    : "NUMBER",
-       !outNum ? "-" : edit.outNum == MAP_ANY ? "same"
-                                              : (snprintf(b, sizeof b, "%u", edit.outNum), b),
-       outNum);
+  for (int f = 0; f < 8; f++) {
+    cell(f / 4, f % 4, midimap::label(edit, f), f == 4 && drop ? "drop it" : midimap::show(edit, f, b, sizeof b),
+         midimap::active(edit, f));
+  }
   tft.drawFastVLine(160, HEAD, H - HEAD - FOOT, C_BAR);
   button(0, 80, learning ? "LISTEN.." : "LEARN", learning ? C_ACCENT : C_DIM);
   button(80, 80, "DROP", drop ? C_BAD : C_DIM);
@@ -328,90 +270,11 @@ static void drawRule() {
   button(240, 80, "DONE", C_OK);
 }
 
-// the next device name (or "": any) for FROM/TO
-static void cycleName(char* name, size_t n, int dir) {
-  char opts[LINK_DEVS + 2][24];
-  int k = 0, at = 0;
-  opts[k++][0] = 0;
-  for (int d = 0; d < LINK_DEVS; d++) {
-    if (hub.dev[d].on && hub.dev[d].name[0]) {
-      int i = 0;
-      for (; hub.dev[d].name[i] && i < 23; i++) {
-        opts[k][i] = (char)tolower(hub.dev[d].name[i]);
-      }
-      opts[k++][i] = 0;
-    }
-  }
-  for (int i = 0; i < k; i++) {
-    if (!strcmp(opts[i], name)) {
-      at = i;
-      break;
-    }
-    if (i == k - 1) {  // a name that isn't on the hub now: keep it in the cycle
-      strlcpy(opts[k], name, sizeof opts[k]);
-      at = k++;
-      break;
-    }
-  }
-  strlcpy(name, opts[(at + dir + k) % k], n);
-}
-
-static uint8_t stepNum(uint8_t v, int dir) {  // any, 0..127
-  if (v == MAP_ANY) {
-    return dir > 0 ? 0 : 127;
-  }
-  int n = v + dir;
-  return n < 0 || n > 127 ? MAP_ANY : (uint8_t)n;
-}
-
-static uint8_t stepType(uint8_t t, int dir) {
-  int i = 0;
-  while (i < 6 && TYPES[i] != t) {
-    i++;
-  }
-  return TYPES[(i % 6 + dir + 6) % 6];
-}
-
-static void editCell(int col, int row, int dir) {
-  if (col == 1 && edit.outType == MAP_DROP) {
-    return;
-  }
-  uint8_t ot = edit.outType ? edit.outType : edit.inType;
-  if (row == 0) {
-    cycleName(col ? edit.to : edit.from, sizeof edit.from, dir);
-  } else if (row == 1) {
-    uint8_t& ch = col ? edit.outCh : edit.inCh;
-    ch = (uint8_t)((ch + dir + 17) % 17);
-  } else if (row == 2) {
-    uint8_t& t = col ? edit.outType : edit.inType;
-    t = stepType(t, dir);
-  } else if (col == 0 && hasNum(edit.inType)) {
-    edit.inNum = stepNum(edit.inNum, dir);
-  } else if (col == 1 && (!ot || hasNum(ot))) {
-    edit.outNum = stepNum(edit.outNum, dir);
-  }
-}
-
 static void storeMap() {
   if (!midimap::save(SD)) {
     Serial.println("can't write " MAP_FILE);
   }
   midimap::push();
-}
-
-// a message came in while LEARN was on: it becomes the rule's left side
-static void learn() {
-  uint8_t st = hub.last[0], kind = st >> 4;
-  int i = 0;
-  for (; hub.dev[hub.lastDev].name[i] && i < (int)sizeof edit.from - 1; i++) {
-    edit.from[i] = (char)tolower(hub.dev[hub.lastDev].name[i]);
-  }
-  edit.from[i] = 0;
-  edit.inCh = (st & 15) + 1;
-  edit.inType = kind == 0x8 || kind == 0x9 ? MAP_NOTE : kind == 0xA ? 0
-                                                                    : kind;
-  edit.inNum = hasNum(edit.inType) ? hub.last[1] : MAP_ANY;
-  learning = false;
 }
 
 static void show(Page p) {
@@ -480,8 +343,7 @@ static void runInstall(bool resume) {
     text("Installed", W / 2, HEAD + 56, 4, C_OK, MC_DATUM);
     text(files[sel].product, W / 2, HEAD + 92, 2, C_FG, MC_DATUM);
   }
-  // the FM-1 restarted: ask it again
-  memset(ids, 0, sizeof ids);
+  fm1::forget();  // the FM-1 restarted: ask it again
   button(0, W, "OK", C_ACCENT);
 }
 
@@ -520,34 +382,6 @@ static void scan() {
 }
 
 // ---------------------------------------------------------------------------------------- the loop ---
-// ask new devices that look like an FM-1 who they are, once they have settled
-static bool probe() {
-  bool changed = false;
-  for (int d = 0; d < LINK_DEVS; d++) {
-    if (!hub.dev[d].on) {
-      if (ids[d].serial) {
-        ids[d].serial = 0;
-        ids[d].ok = false;
-        changed = true;
-      }
-      continue;
-    }
-    if (ids[d].serial == hub.dev[d].serial) {
-      continue;
-    }
-    if (!ids[d].askAt) {
-      ids[d].askAt = millis();
-      changed = true;  // a new device: the list changes
-    } else if (millis() - ids[d].askAt > 1500) {
-      ids[d].serial = hub.dev[d].serial;
-      ids[d].askAt = 0;
-      ids[d].ok = fm1::candidate(d) && fm1::handshake(d, ids[d].id);
-      changed = true;
-    }
-  }
-  return changed;
-}
-
 static void tap(int x, int y, bool repeat = false) {
   bool foot = y >= H - FOOT;
   if (page == RULE && !foot && y >= HEAD) {
@@ -556,7 +390,7 @@ static void tap(int x, int y, bool repeat = false) {
                                       : 0;
     if (dir && row < 4 && (!repeat || row == 1 || row == 3)) {
       learning = false;
-      editCell(col, row, dir);
+      midimap::step(edit, col * 4 + row, dir);
       drawRule();
     }
     return;
@@ -585,12 +419,12 @@ static void tap(int x, int y, bool repeat = false) {
       }
     }
   } else if (page == CONFIRM && foot) {
-    int d = fm1Dev();
+    int d = fm1::current();
     if (x < 160) {
       show(FILES);
     } else if (d >= 0) {
-      if (ids[d].id.ota() || fits(d)) {
-        runInstall(ids[d].id.ota());
+      if (fm1::known(d)->ota() || fits(d)) {
+        runInstall(fm1::known(d)->ota());
       }
     }
   } else if (page == RUN && foot) {
@@ -614,8 +448,7 @@ static void tap(int x, int y, bool repeat = false) {
         mapTop = mapTop + ROWS < midimap::count ? mapTop + ROWS : mapTop;
       } else if (x < 224) {
         if (midimap::count < MAP_RULES) {
-          memset(&edit, 0, sizeof edit);
-          edit.inNum = edit.outNum = MAP_ANY;
+          midimap::blank(edit);
           editIdx = -1;
           learning = false;
           show(RULE);
@@ -645,18 +478,12 @@ static void tap(int x, int y, bool repeat = false) {
       drawRule();
     } else if (x < 240) {
       if (editIdx >= 0) {
-        memmove(&midimap::rules[editIdx], &midimap::rules[editIdx + 1],
-                (midimap::count - editIdx - 1) * sizeof(MapRule));
-        midimap::count--;
+        midimap::remove(editIdx);
         storeMap();
       }
       show(MAP);
     } else {
-      if (editIdx < 0) {
-        midimap::rules[midimap::count++] = edit;
-      } else {
-        midimap::rules[editIdx] = edit;
-      }
+      midimap::put(editIdx, edit);
       storeMap();
       show(MAP);
     }
@@ -720,6 +547,23 @@ static void console() {
   }
 }
 
+// the link to the box: its UART, on CN1
+static link_rx_t uartRx;
+
+static void uartSend(uint8_t type, uint8_t d, const uint8_t* p, uint32_t n) {
+  uint8_t wire[LINK_WIRE];
+  Serial2.write(wire, link_encode(type, d, p, n, wire));
+}
+
+static void uartPump() {
+  int c;
+  while ((c = Serial2.read()) >= 0) {
+    if (link_rx_byte(&uartRx, (uint8_t)c)) {
+      hub.frame(uartRx.type, uartRx.dev, uartRx.payload, uartRx.n);
+    }
+  }
+}
+
 void setup() {
   Serial.begin(460800);
   tft.init();
@@ -728,7 +572,9 @@ void setup() {
   touchBegin();
   prefs.begin("fm1buddy");
   thru = prefs.getBool("thru", true);
-  hub.begin();
+  Serial2.setRxBufferSize(4096);
+  Serial2.begin(LINK_BAUD, SERIAL_8N1, LINK_RX, LINK_TX);
+  hub.begin(uartSend, uartPump);
   sdSpi.begin(18, 19, 23, 5);
   sdOk = SD.begin(5, sdSpi, 20000000);
   if (sdOk) {
@@ -753,10 +599,11 @@ void loop() {
     midimap::push();
   }
   if (page == RULE && learning && hub.seq != learnSeq) {
-    learn();
+    midimap::learn(edit);
+    learning = false;
     drawRule();
   }
-  if (probe() && (page == DEVICES || page == CONFIRM)) {
+  if (fm1::watch() && (page == DEVICES || page == CONFIRM)) {
     show(page);
   }
   if (page != RUN) {

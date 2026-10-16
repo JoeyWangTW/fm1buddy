@@ -2,15 +2,14 @@
 
 Link hub;
 
-void Link::begin() {
+void Link::begin(LinkSend send, LinkPump pump) {
   memset(this, 0, sizeof *this);
-  Serial2.setRxBufferSize(4096);
-  Serial2.begin(LINK_BAUD, SERIAL_8N1, LINK_RX, LINK_TX);
+  sendFn = send;
+  pumpFn = pump;
 }
 
 void Link::out(uint8_t type, uint8_t d, const uint8_t* p, uint32_t n) {
-  uint8_t wire[LINK_WIRE];
-  Serial2.write(wire, link_encode(type, d, p, n, wire));
+  sendFn(type, d, p, n);
 }
 
 void Link::poll() {
@@ -19,12 +18,7 @@ void Link::poll() {
     helloAt = millis();
     out(LINK_HELLO, 0, 0, 0);
   }
-  int c;
-  while ((c = Serial2.read()) >= 0) {
-    if (link_rx_byte(&rx, (uint8_t)c)) {
-      frame(rx.type, rx.dev, rx.payload, rx.n);
-    }
-  }
+  pumpFn();
 }
 
 void Link::frame(uint8_t type, uint8_t d, const uint8_t* p, uint32_t n) {

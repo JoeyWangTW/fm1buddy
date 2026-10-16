@@ -1,4 +1,5 @@
-// The link to the USB host box (common/fm1link.h): the devices on its hub, the SysEx they send, sending to them
+// The link to the USB host box (fm1link.h): the devices on its hub, the SysEx they send, sending to them. The
+// transport is the board's: the CYD's UART to the box, or the Feather's queue between its two cores
 #pragma once
 
 #include <Arduino.h>
@@ -15,6 +16,11 @@ struct LinkDev {
   uint32_t serial;  // changes on every mount, so a new device in the same slot is noticed
 };
 
+// sends one frame to the box
+typedef void (*LinkSend)(uint8_t type, uint8_t d, const uint8_t* p, uint32_t n);
+// hands what came from the box to hub.frame()
+typedef void (*LinkPump)();
+
 class Link {
  public:
   LinkDev dev[LINK_DEVS];
@@ -25,7 +31,7 @@ class Link {
   uint32_t seq;
   uint8_t lastDev, last[3];
 
-  void begin();
+  void begin(LinkSend send, LinkPump pump);
   void poll();  // call often: reads the UART
   void send(uint8_t d, const uint8_t* p, uint32_t n);
   void route(const uint8_t r[LINK_DEVS]);
@@ -38,7 +44,8 @@ class Link {
   void drain(uint8_t d);
 
  private:
-  link_rx_t rx;
+  LinkSend sendFn;
+  LinkPump pumpFn;
   uint32_t helloAt;
   uint8_t sx[LINK_DEVS][SYSEX_MAX];
   uint32_t sxn[LINK_DEVS];

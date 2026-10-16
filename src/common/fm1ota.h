@@ -50,4 +50,12 @@ const char* install(Pkg& pkg, Fm1Progress cb);
 const char* resume(Pkg& pkg, Fm1Progress cb);
 // waits while keeping the link going
 void wait(uint32_t ms);
+// call often: asks each device that may be an FM-1 who it is, once it has settled; true when something changed
+bool watch();
+// what device d answered (an FM-1, or its loader), or 0
+const Fm1Id* known(int d);
+// the first device that answered, -1 if none
+int current();
+// ask them all again (the FM-1 restarted)
+void forget();
 }  // namespace fm1

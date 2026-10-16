@@ -7,8 +7,8 @@ Hardware helpers for the M-VAVE FM-1:
   installed on the FM-1, no computer. It also edits **MIDI mapping** on the box: "when CC 10 comes in from the
   controller, send CC 5 on channel 2".
 
-The switcher is a "Cheap Yellow Display" (ESP32-2432S028R) wired to the host box with three wires. The box works on its
-own too.
+The switcher is either a 128x64 OLED and buttons on the box itself (one board, a little soldering), or a "Cheap Yellow
+Display" touch screen (ESP32-2432S028R) wired to the box with three wires. The box works on its own too.
 
 ## Why a host box
 
@@ -30,8 +30,8 @@ Two ways to build one, both from ready-made parts and with no soldering:
 | Setup                | drag one file onto it                                | install Raspberry Pi OS, run one command                                                                |
 | Ready after power-on | under a second                                       | about 30 seconds                                                                                        |
 | Devices              | up to 4 on the hub                                   | as many as the hub has ports                                                                            |
-| Firmware switcher    | yes                                                  | no                                                                                                      |
-| MIDI mapping         | yes (set up on the CYD)                              | no                                                                                                      |
+| Firmware switcher    | yes: with an OLED FeatherWing, or a CYD              | no                                                                                                      |
+| MIDI mapping         | yes                                                  | no                                                                                                      |
 
 Either way you also need the cables you already have: one for the FM-1 (USB-A to USB-C) and one for each controller.
 
@@ -40,10 +40,10 @@ Either way you also need the cables you already have: one for the FM-1 (USB-A to
 The board has a USB-A socket for devices and powers it (up to 500 mA). Its USB-C socket is only for power and for
 loading the firmware.
 
-1. Get `fm1buddy-usbhost.uf2` from the [latest release](https://github.com/konsumer/fm1buddy/releases/latest), or
-   build it with `usbhost/build.sh` (needs Docker).
+1. Get `fm1buddy-feather.uf2` from the [latest release](https://github.com/konsumer/fm1buddy/releases/latest), or
+   build it (`pio run -e feather`, it's `.pio/build/feather/firmware.uf2`).
 2. Hold the board's **BOOT** button while you plug its USB-C into a computer. A drive called `RPI-RP2` appears.
-3. Drag `fm1buddy-usbhost.uf2` onto it. The drive disappears; the box is ready. (You only do this once.)
+3. Drag `fm1buddy-feather.uf2` onto it. The drive disappears; the box is ready. (You only do this once.)
 4. Plug the hub into the USB-A socket, and the FM-1 and your controllers into the hub. Power the board's USB-C from a
    charger or power bank (or a computer).
 
@@ -57,19 +57,42 @@ use a hub with its own power supply.
 2. Start the Pi, connect to it with `ssh`, and run:
 
    ```sh
-   curl -fsSL https://raw.githubusercontent.com/konsumer/fm1buddy/main/usbhost/pi-setup.sh | sudo sh
+   curl -fsSL https://raw.githubusercontent.com/konsumer/fm1buddy/main/tools/pi-setup.sh | sudo sh
    ```
 
 3. Plug the OTG adapter into the Zero's **USB** port (not PWR), the powered hub into the adapter, and the FM-1 and
    your controllers into the hub. Power the Pi from its PWR port.
 
 From then on it starts by itself whenever the Pi is powered. It checks every 2 seconds for devices that came or went
-(`usbhost/pi-setup.sh` is the whole thing). Wi-Fi is only needed for setup.
+(`tools/pi-setup.sh` is the whole thing). Wi-Fi is only needed for setup.
 
 **Avoid loops:** if a controller sends back everything it receives ("MIDI thru" or "echo" in its settings), turn
 that off, or messages go round in circles.
 
-## The firmware switcher
+## The firmware switcher on the box: OLED and buttons
+
+Add an [Adafruit 128x64 OLED FeatherWing](https://www.adafruit.com/product/4650) to the Feather box (A): solder
+headers on, and stack it. Its three buttons are **up**, **OK** and **down**; hold **OK** to go back.
+
+When a computer is on the Feather's USB-C, the Feather shows up there as a drive called `fm1buddy` (most of its 8 MB
+flash): copy firmware packages (`.fwsc`) into its `fm1` folder. Then plug the Feather into a charger instead (or leave
+it on the computer) and pick **Install firmware**.
+
+- **Install firmware** lists `fm1/`. Pick one, and **OK** installs it on the FM-1 on the hub (it checks that it's for the
+  FM-1 first). If an install was cut off, the FM-1 waits in update mode, and **OK** finishes it.
+- **Devices** shows what's on the hub.
+- **MIDI map** is the [mapping](#midi-mapping): pick a rule (or "add a rule"), move to a field and press **OK** to change
+  it with up/down, **OK** again when it's right. "learn" fills in what comes in from the next thing you play.
+- **MIDI thru** turns the box's everything-to-everything on or off.
+
+The rules are in `midimap.txt` on the drive, so you can also write them on the computer.
+
+Another 128x64 I2C OLED (SSD1306 or SH1106, on the Feather's STEMMA QT / SDA SCL) works too, with your own buttons
+(each to GND): set `OLED_SSD1306` or `OLED_SH1106`, and the button pins, in `platformio.ini` (`BTN_BACK` adds a
+separate back button). An SD card (an [Adalogger FeatherWing](https://www.adafruit.com/product/2922), CS on 10) adds
+its `fm1` folder to the list.
+
+## The firmware switcher on a touch screen: the CYD
 
 You need the Feather box (A) and an ESP32-2432S028R "Cheap Yellow Display" with a microSD card.
 
@@ -113,7 +136,7 @@ and install again.
 
 ### MIDI mapping
 
-Everything passes through as it is, until a rule says otherwise. On **DEVICES**, tap **MAP**, then **ADD**:
+Everything passes through as it is, until a rule says otherwise. On the CYD: on **DEVICES**, tap **MAP**, then **ADD**:
 
 - The left column is what comes in: **FROM** a device (or any), its **CHANNEL**, **TYPE** (note, cc, pc, at for channel
   pressure, pb for pitch bend) and **NUMBER** (the note, the CC, the program).
@@ -155,21 +178,27 @@ If the colors look inverted, your CYD is the two-USB-port revision: uncomment `T
 
 ```
 CYD (screen, touch, SD:/fm1)  <-- UART 1 Mbaud -->  Feather RP2040 (USB host)  -->  hub  -->  FM-1, controllers
+                                                    (OLED, buttons, USB drive)
 ```
 
-- `usbhost/` is the box: TinyUSB on Pico-PIO-USB. It routes every device's MIDI to the others, and over its UART it
-  tells the CYD what's plugged in, passes on what each device sends, and takes MIDI to send, routing and mapping
-  rules. The link is in `common/fm1link.h`, the mapping in `common/fm1map.h`.
-- `cyd/` is the switcher. `fm1ota.cpp` is the FM-1's update protocol (M-UPGRADE compatible), ported from foma's
+- `src/feather/` is the box: TinyUSB on Pico-PIO-USB, on the RP2040's second core (`host.cpp`). It routes every
+  device's MIDI to the others, and tells whoever is listening (its own screen, through a queue between the cores, and
+  a CYD on its UART) what's plugged in and what each device sends; it takes MIDI to send, routing and mapping rules.
+  The link is in `src/common/fm1link.h`, the mapping in `src/common/fm1map.h`. The first core has the USB drive and the
+  OLED screen (`ui.cpp`).
+- `src/cyd/` is the touch screen.
+- `src/common/` is what both screens use. `fm1ota.cpp` is the FM-1's update protocol (M-UPGRADE compatible), ported from foma's
   `web/fm1ota.js`: the FM-1 asks for parts of the package with SysEx read requests, and the CYD answers each one
   straight from the SD card. First the running firmware checks the package and starts the update loader; then the
   loader (a new USB device, `ota-...`) reads the whole image and writes it.
 
 ```
-common/fm1link.h     the UART link between the two
-common/fm1map.h      the MIDI mapping, as the box does it
-cyd/                 the CYD (PlatformIO, platformio.ini)
-usbhost/             the Feather (Pico SDK, usbhost/build.sh), and pi-setup.sh
+platformio.ini       both boards: pio run -e feather, pio run -e cyd
+src/common/          the link, the mapping, the FM-1 update, the rules file
+src/feather/         the box (host.cpp), its USB drive and screen
+src/cyd/             the touch screen
+lib/Pico-PIO-USB/    Pico-PIO-USB 0.7.2 (MIT), here so PlatformIO doesn't pull a second TinyUSB in with it
+tools/pi-setup.sh    the Raspberry Pi box
 tools/cyd.py         drives the CYD over its USB serial: screenshots, taps, fake devices (for testing)
 ```
 

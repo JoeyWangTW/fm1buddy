@@ -141,7 +141,7 @@ bool midimap::parse(const char* line, MapRule& r, const char** why) {
   return true;
 }
 
-static void put(char* out, size_t n, const char* s) {
+static void append(char* out, size_t n, const char* s) {
   if (*out) {
     strlcat(out, " ", n);
   }
@@ -152,19 +152,19 @@ static void formatSide(char* out, size_t n, const char* word, const char* name, 
                        uint8_t num) {
   char b[32];
   if (*name) {
-    put(out, n, word);
+    append(out, n, word);
     snprintf(b, sizeof b, strchr(name, ' ') ? "\"%s\"" : "%s", name);
-    put(out, n, b);
+    append(out, n, b);
   }
   if (ch) {
     snprintf(b, sizeof b, "ch %u", ch);
-    put(out, n, b);
+    append(out, n, b);
   }
   if (type && TYPE_NAMES[type]) {
-    put(out, n, TYPE_NAMES[type]);
+    append(out, n, TYPE_NAMES[type]);
     if (num != MAP_ANY) {
       snprintf(b, sizeof b, "%u", num);
-      put(out, n, b);
+      append(out, n, b);
     }
   }
 }
@@ -172,9 +172,9 @@ static void formatSide(char* out, size_t n, const char* word, const char* name, 
 void midimap::format(const MapRule& r, char* out, size_t n) {
   *out = 0;
   formatSide(out, n, "from", r.from, r.inCh, r.inType, r.inNum);
-  put(out, n, "->");
+  append(out, n, "->");
   if (r.outType == MAP_DROP) {
-    put(out, n, "drop");
+    append(out, n, "drop");
   } else {
     formatSide(out, n, "to", r.to, r.outCh, r.outType, r.outNum);
   }
@@ -250,4 +250,180 @@ void midimap::push() {
     b[7] = r.outNum;
   }
   hub.map(p, count * 8);
+}
+
+void midimap::put(int i, const MapRule& r) {
+  if (i < 0) {
+    if (count < MAP_RULES) {
+      rules[count++] = r;
+    }
+  } else if (i < count) {
+    rules[i] = r;
+  }
+}
+
+void midimap::remove(int i) {
+  if (i >= 0 && i < count) {
+    memmove(&rules[i], &rules[i + 1], (count - i - 1) * sizeof(MapRule));
+    count--;
+  }
+}
+
+// ------------------------------------------------------------------------------------------- editing ---
+static const uint8_t TYPES[] = {0, MAP_NOTE, MAP_CC, MAP_PC, MAP_AT, MAP_PB};
+
+const char* midimap::typeName(uint8_t t) {
+  return t < 16 ? TYPE_NAMES[t] : 0;
+}
+
+bool midimap::hasNum(uint8_t t) {
+  return t == MAP_NOTE || t == MAP_CC || t == MAP_PC;
+}
+
+void midimap::blank(MapRule& r) {
+  memset(&r, 0, sizeof r);
+  r.inNum = r.outNum = MAP_ANY;
+}
+
+// the next device name (or "": any) for from/to: the devices on the hub now, and the name the rule has
+static void stepName(char* name, size_t n, int dir) {
+  char opts[LINK_DEVS + 2][24];
+  int k = 0, at = -1;
+  opts[k++][0] = 0;
+  for (int d = 0; d < LINK_DEVS; d++) {
+    if (hub.dev[d].on && hub.dev[d].name[0]) {
+      int i = 0;
+      for (; hub.dev[d].name[i] && i < 23; i++) {
+        opts[k][i] = (char)tolower(hub.dev[d].name[i]);
+      }
+      opts[k++][i] = 0;
+    }
+  }
+  for (int i = 0; i < k && at < 0; i++) {
+    if (!strcmp(opts[i], name)) {
+      at = i;
+    }
+  }
+  if (at < 0) {  // a name that isn't on the hub now: keep it in the cycle
+    strlcpy(opts[k], name, sizeof opts[k]);
+    at = k++;
+  }
+  strlcpy(name, opts[(at + dir + k) % k], n);
+}
+
+static uint8_t stepNum(uint8_t v, int dir) {  // any, 0..127
+  if (v == MAP_ANY) {
+    return dir > 0 ? 0 : 127;
+  }
+  int n = v + dir;
+  return n < 0 || n > 127 ? MAP_ANY : (uint8_t)n;
+}
+
+static uint8_t stepType(uint8_t t, int dir) {
+  int i = 0;
+  while (i < 6 && TYPES[i] != t) {
+    i++;
+  }
+  return TYPES[(i % 6 + dir + 6) % 6];
+}
+
+bool midimap::active(const MapRule& r, int field) {
+  uint8_t ot = r.outType ? r.outType : r.inType;  // what it becomes
+  if (field >= 4 && r.outType == MAP_DROP) {
+    return false;
+  }
+  if (field == 3) {
+    return hasNum(r.inType);
+  }
+  if (field == 7) {
+    return !ot || hasNum(ot);
+  }
+  return field >= 0 && field < 8;
+}
+
+void midimap::step(MapRule& r, int field, int dir) {
+  if (!active(r, field)) {
+    return;
+  }
+  switch (field) {
+    case 0:
+      stepName(r.from, sizeof r.from, dir);
+      break;
+    case 1:
+      r.inCh = (uint8_t)((r.inCh + dir + 17) % 17);
+      break;
+    case 2:
+      r.inType = stepType(r.inType, dir);
+      break;
+    case 3:
+      r.inNum = stepNum(r.inNum, dir);
+      break;
+    case 4:
+      stepName(r.to, sizeof r.to, dir);
+      break;
+    case 5:
+      r.outCh = (uint8_t)((r.outCh + dir + 17) % 17);
+      break;
+    case 6:
+      r.outType = stepType(r.outType, dir);
+      break;
+    case 7:
+      r.outNum = stepNum(r.outNum, dir);
+      break;
+  }
+}
+
+const char* midimap::label(const MapRule& r, int field) {
+  static const char* NAMES[] = {"FROM", "CHANNEL", "TYPE", "NUMBER", "TO", "CHANNEL", "TYPE", "NUMBER"};
+  uint8_t t = field == 3 ? r.inType : r.outType ? r.outType
+                                                : r.inType;
+  if ((field == 3 || field == 7) && (t == MAP_NOTE || t == MAP_PC)) {
+    return t == MAP_NOTE ? "NOTE" : "PROGRAM";
+  }
+  return field >= 0 && field < 8 ? NAMES[field] : "";
+}
+
+const char* midimap::show(const MapRule& r, int field, char* buf, size_t n) {
+  bool drop = r.outType == MAP_DROP;
+  if (!active(r, field)) {
+    return field >= 4 && drop ? "" : "-";
+  }
+  uint8_t v;
+  switch (field) {
+    case 0:
+      return r.from[0] ? r.from : "any device";
+    case 4:
+      return r.to[0] ? r.to : "as routed";
+    case 2:
+      return r.inType ? typeName(r.inType) : "any";
+    case 6:
+      return r.outType ? typeName(r.outType) : "same";
+    case 1:
+    case 5:
+      v = field == 1 ? r.inCh : r.outCh;
+      if (!v) {
+        return field == 1 ? "any" : "same";
+      }
+      break;
+    default:
+      v = field == 3 ? r.inNum : r.outNum;
+      if (v == MAP_ANY) {
+        return field == 3 ? "any" : "same";
+      }
+  }
+  snprintf(buf, n, "%u", v);
+  return buf;
+}
+
+void midimap::learn(MapRule& r) {
+  uint8_t st = hub.last[0], kind = st >> 4;
+  int i = 0;
+  for (; hub.dev[hub.lastDev].name[i] && i < (int)sizeof r.from - 1; i++) {
+    r.from[i] = (char)tolower(hub.dev[hub.lastDev].name[i]);
+  }
+  r.from[i] = 0;
+  r.inCh = (st & 15) + 1;
+  r.inType = kind == 0x8 || kind == 0x9 ? MAP_NOTE : kind == 0xA ? 0
+                                                                 : kind;
+  r.inNum = hasNum(r.inType) ? hub.last[1] : MAP_ANY;
 }

@@ -1,47 +1,32 @@
-/* The fm1buddy USB MIDI host box: an Adafruit Feather RP2040 with USB Type A Host, a USB hub in its USB-A
- * socket, and the FM-1 and controllers on the hub. Whatever any of them sends goes to all of the others, so
- * there is nothing to set up. The red LED blinks with the traffic.
- *
- * The CYD (optional) connects to the Feather's TX/RX: it sees every device and what it sends, sends to any
- * of them, and sets the routing (common/fm1link.h). That is how it installs firmware on the FM-1. */
-#include "fm1link.h"
+// The box, on core 1 (host.h). Started as tools/usbhost in FOMAJAM.
+#include "host.h"
+
+#include <Adafruit_TinyUSB.h>
+
 #include "fm1map.h"
-#include "hardware/clocks.h"
-#include "hardware/irq.h"
-#include "hardware/uart.h"
-#include "pico/stdlib.h"
 #include "pio_usb.h"
-#include "tusb.h"
 
-#define PIN_DP 16    /* the USB-A socket's D+ (D- is the next pin) */
-#define PIN_5V_EN 18 /* its 5 V */
-#define PIN_LED 13
-#define LINK_UART uart0
-#define PIN_TX 0 /* to the CYD's RX (GPIO22) */
-#define PIN_RX 1 /* from the CYD's TX (GPIO27) */
-
+queue_t toHost, fromHost;
+static Adafruit_USBH_Host USBHost;
 static uint32_t led_off_at;
 
-/* -------------------------------------------------------------- the link: UART RX ring, filled by its IRQ --- */
-#define RXQ 4096u
-static uint8_t rx_q[RXQ];
-static volatile uint32_t rx_w, rx_r;
-static link_rx_t rx;
-
-static void uart_irq(void) {
-  while (uart_is_readable(LINK_UART)) {
-    uint8_t b = (uint8_t)uart_get_hw(LINK_UART)->dr;
-    if (rx_w - rx_r < RXQ) {
-      rx_q[rx_w % RXQ] = b;
-      rx_w++;
-    }
-  }
+void hostQueues() {
+  queue_init(&toHost, sizeof(HostFrame), 16);
+  queue_init(&fromHost, sizeof(HostFrame), 48);
 }
 
+/* to core 0: MIDI that doesn't fit is dropped, rather than holding up the USB */
 static void link_send(uint8_t type, uint8_t dev, const uint8_t* p, uint32_t n) {
-  uint8_t wire[LINK_WIRE];
-  uint32_t len = link_encode(type, dev, p, n, wire);
-  uart_write_blocking(LINK_UART, wire, len);
+  static HostFrame f;
+  f.type = type;
+  f.dev = dev;
+  f.n = (uint16_t)(n > LINK_PAYLOAD ? LINK_PAYLOAD : n);
+  memcpy(f.p, p, f.n);
+  if (type == LINK_MIDI) {
+    queue_try_add(&fromHost, &f);
+  } else {
+    queue_add_blocking(&fromHost, &f);
+  }
 }
 
 /* ---------------------------------------------------------------------------------------- the devices --- */
@@ -136,8 +121,8 @@ static void forward(void) {
         link_send(LINK_MIDI, from, bytes, nb);
         nb = 0;
       }
-      gpio_put(PIN_LED, 1);
-      led_off_at = to_ms_since_boot(get_absolute_time()) + 20;
+      digitalWrite(PIN_LED, 1);
+      led_off_at = millis() + 20;
       uint8_t q[4] = {p[0], p[1], p[2], p[3]}, dest = route[from];
       if (p[0] >= 0x8 && p[0] <= 0xE && n_rules) {
         uint8_t o[3];
@@ -168,7 +153,7 @@ static void forward(void) {
   }
 }
 
-/* what the CYD sent: one LINK_SEND at a time, written as the device's TX buffer has room */
+/* what core 0 (or the CYD through it) sent: one LINK_SEND at a time, written as the device's TX buffer has room */
 static void from_link(void) {
   for (uint8_t i = 0; i < CFG_TUH_MIDI; i++) {
     if (dev[i].out_at < dev[i].out_n) {
@@ -180,12 +165,8 @@ static void from_link(void) {
       return; /* the rest waits: keeps the order of what the CYD sent */
     }
   }
-  while (rx_r != rx_w) {
-    uint8_t b = rx_q[rx_r % RXQ];
-    rx_r++;
-    if (!link_rx_byte(&rx, b)) {
-      continue;
-    }
+  static HostFrame rx;
+  while (queue_try_remove(&toHost, &rx)) {
     if (rx.type == LINK_HELLO) {
       uint8_t v = LINK_VERSION;
       link_send(LINK_HELLO, 0, &v, 1);
@@ -196,7 +177,7 @@ static void from_link(void) {
       }
     } else if (rx.type == LINK_ROUTE && rx.n >= CFG_TUH_MIDI) {
       for (uint8_t i = 0; i < CFG_TUH_MIDI; i++) {
-        route[i] = rx.payload[i];
+        route[i] = rx.p[i];
       }
     } else if (rx.type == LINK_MAP) {
       n_rules = rx.n / sizeof(map_rule_t);
@@ -204,14 +185,12 @@ static void from_link(void) {
         n_rules = MAP_RULES;
       }
       for (uint32_t i = 0; i < n_rules; i++) {
-        const uint8_t* b = rx.payload + i * 8;
+        const uint8_t* b = rx.p + i * 8;
         map_rule_t r = {b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]};
         rules[i] = r;
       }
     } else if (rx.type == LINK_SEND && rx.dev < CFG_TUH_MIDI && tuh_midi_mounted(rx.dev) && rx.n) {
-      for (uint32_t k = 0; k < rx.n; k++) {
-        dev[rx.dev].out[k] = rx.payload[k];
-      }
+      memcpy(dev[rx.dev].out, rx.p, rx.n);
       dev[rx.dev].out_n = rx.n;
       dev[rx.dev].out_at = tuh_midi_stream_write(rx.dev, 0, dev[rx.dev].out, rx.n);
       return;
@@ -219,45 +198,33 @@ static void from_link(void) {
   }
 }
 
-int main(void) {
-  set_sys_clock_khz(120000, true); /* PIO USB needs a multiple of 12 MHz */
-  gpio_init(PIN_LED);
-  gpio_set_dir(PIN_LED, GPIO_OUT);
-  gpio_init(PIN_5V_EN);
-  gpio_set_dir(PIN_5V_EN, GPIO_OUT);
-  gpio_put(PIN_5V_EN, 1);
+void hostSetup() {
+  pinMode(PIN_LED, OUTPUT);
+  pinMode(PIN_5V_EN, OUTPUT);
+  digitalWrite(PIN_5V_EN, HIGH);  // the USB-A socket's 5 V
   for (uint8_t i = 0; i < CFG_TUH_MIDI; i++) {
     route[i] = LINK_ROUTE_ALL;
   }
-
-  uart_init(LINK_UART, LINK_BAUD);
-  gpio_set_function(PIN_TX, GPIO_FUNC_UART);
-  gpio_set_function(PIN_RX, GPIO_FUNC_UART);
-  uart_set_fifo_enabled(LINK_UART, true);
-  irq_set_exclusive_handler(UART0_IRQ, uart_irq);
-  irq_set_enabled(UART0_IRQ, true);
-  uart_set_irq_enables(LINK_UART, true, false);
   uint8_t v = LINK_VERSION;
   link_send(LINK_HELLO, 0, &v, 1);
-
   pio_usb_configuration_t cfg = PIO_USB_DEFAULT_CONFIG;
-  cfg.pin_dp = PIN_DP;
-  tuh_configure(BOARD_TUH_RHPORT, TUH_CFGID_RPI_PIO_USB_CONFIGURATION, &cfg);
-  tuh_init(BOARD_TUH_RHPORT);
+  cfg.pin_dp = PIN_USB_HOST_DP;
+  USBHost.configure_pio_usb(1, &cfg);
+  USBHost.begin(1);
+}
 
-  while (1) {
-    tuh_task();
-    ask_names();
-    forward();
-    from_link();
-    for (uint8_t to = 0; to < CFG_TUH_MIDI; to++) {
-      if (tuh_midi_mounted(to)) {
-        tuh_midi_write_flush(to);
-      }
+void hostLoop() {
+  USBHost.task();
+  ask_names();
+  forward();
+  from_link();
+  for (uint8_t to = 0; to < CFG_TUH_MIDI; to++) {
+    if (tuh_midi_mounted(to)) {
+      tuh_midi_write_flush(to);
     }
-    if (led_off_at && (int32_t)(to_ms_since_boot(get_absolute_time()) - led_off_at) >= 0) {
-      gpio_put(PIN_LED, 0);
-      led_off_at = 0;
-    }
+  }
+  if (led_off_at && (int32_t)(millis() - led_off_at) >= 0) {
+    digitalWrite(PIN_LED, 0);
+    led_off_at = 0;
   }
 }
