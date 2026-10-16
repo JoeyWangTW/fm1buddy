@@ -49,6 +49,14 @@
           <li>The drive disappears and the Feather restarts: <strong>it's ready.</strong> (A new drive, <code>fm1buddy</code>, shows up: that's for the firmware switcher.)</li>
           <li><strong>Plug in</strong> the hub, then the FM-1 and your controllers. Power the Feather's USB-C from a charger, a power bank or a computer. Its red LED blinks when MIDI goes through.</li>
         </ol>
+        <h2>A case</h2>
+        <div class="case" data-case="bare">
+          <img src="case/bare.png" alt="The case for the USB host box" width="450" height="350" loading="lazy" />
+          <div>
+            <p>Print the base open side up and the lid flat side down, without supports (PLA or PETG). The lid snaps on. The lid has holes over BOOT and RESET, for a paperclip.</p>
+            <div class="actions case-links"></div>
+          </div>
+        </div>
         <h2>MIDI mapping, without a screen</h2>
         <p>Everything passes as it is, until you say otherwise. With the Feather on a computer, open <code>midimap.txt</code> on its <code>fm1buddy</code> drive and add a rule per line, then save and eject. The box uses them a second after you save, and every time it starts:</p>
         <pre><code>from nanokontrol2 ch 1 cc 10 -> ch 2 cc 5
@@ -75,6 +83,15 @@ pb -> drop</code></pre>
           <li><strong>Add FM-1 firmwares.</strong> With the Feather on the computer, open the <code>fm1buddy</code> drive and copy <code>.fwsc</code> packages into its <code>fm1</code> folder (from the <a href="https://fm1.designburgapps.com">FM-1 Firmware Hub</a>, or your own <a href="https://github.com/konsumer/foma">foma</a> builds).</li>
           <li><strong>Plug in</strong> the hub and the FM-1. The screen shows the FM-1 it found, top right.</li>
         </ol>
+        <h2>A case</h2>
+        <div class="case" data-case="oled">
+          <img src="case/oled.png" alt="The case for the box with its screen" width="450" height="350" loading="lazy" />
+          <div>
+            <p>Print the base open side up and the lid flat side down, without supports (PLA or PETG). The lid snaps on. The tabs next to the screen press its three buttons.</p>
+            <div class="actions case-links"></div>
+          </div>
+        </div>
+        <p class="note">With an Adalogger FeatherWing stacked in between, print the <em>sd_oled</em> case: <span class="case-links" data-case="sd_oled"></span></p>
         <h2>Use it</h2>
         <table>
           <tr>
@@ -150,12 +167,21 @@ pb -> drop</code></pre>
           </li>
           <li><strong>Turn them on.</strong> The top right of the CYD shows the FM-1 on the hub: tap a package, then <em>INSTALL</em>. <em>DEVICES</em> → <em>MAP</em> is the MIDI mapping.</li>
         </ol>
+        <h2>A case</h2>
+        <div class="case" data-case="cyd">
+          <img src="case/cyd.png" alt="The case for the CYD, with the Feather behind it" width="450" height="350" loading="lazy" />
+          <div>
+            <p>Print the base open side up and the lid flat side down, without supports (PLA or PETG). The lid snaps on. The Feather lies across the box behind the CYD, its USB ports out the sides. Run its 3 wires before you close it.</p>
+            <div class="actions case-links"></div>
+          </div>
+        </div>
       </section>
 
       <section class="notes">
         <h2>Good to know</h2>
         <ul>
           <li>The FM-1 only takes firmware over USB, so installing always goes through the host box.</li>
+          <li><strong>On a battery:</strong> the battery cases fit a flat 500 mAh LiPo (like Adafruit's 1578) under the Feather, and have a hole for a small slide switch in its lead. The Feather charges it from its USB-C, and makes the 5 V for the hub from it (500 mA at most). Roughly: the box and a small controller run an hour or two on 500 mAh; whatever else on the hub draws power (the FM-1, if it charges from it) takes from that.</li>
           <li>Installing firmware is at your own risk. If the FM-1 won't start, hold <strong>OCT-</strong> while switching it on (the USB rescue), and install again.</li>
           <li>If a controller sends back everything it receives ("MIDI thru" or "echo" in its settings), turn that off, or messages go round in circles.</li>
         </ul>

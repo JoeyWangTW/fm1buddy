@@ -1,4 +1,4 @@
-# Builds the CYD firmware and the Feather's .uf2. Every run keeps them as a "firmware" artifact; tags (v0.2) also
+# Builds the CYD firmware, the Feather's .uf2, and the cases' STLs. Every run keeps them as a "firmware" artifact; tags (v0.2) also
 # get a release with them attached.
 name: build
 on:
@@ -39,4 +39,21 @@ jobs:
           files: |
             build/fm1buddy-cyd.bin
             build/fm1buddy-feather.uf2
+          fail_on_unmatched_files: true
+
+  cases:
+    runs-on: ubuntu-latest
+    container: openscad/openscad:dev.2026-09-28
+    steps:
+      - uses: actions/checkout@v4
+      - run: tools/cases.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cases
+          path: build/case/*.stl
+          if-no-files-found: error
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          files: build/case/*.stl
           fail_on_unmatched_files: true

@@ -180,6 +180,17 @@ Or flash `fm1buddy-cyd.bin` from a release (bootloader and all, at 0):
 
 If the colors look inverted, your CYD is the two-USB-port revision: uncomment `TFT_INVERSION_ON` in `platformio.ini`.
 
+## Cases
+
+`case/fm1buddy-case.scad` (OpenSCAD) is a snap-fit case for each setup: `bare` (the box), `oled` (with the OLED
+FeatherWing; tabs in the lid press its buttons), `sd` and `sd_oled` (with an Adalogger FeatherWing), and `cyd` (the
+CYD in front, the Feather behind it). Each also comes with room for a flat LiPo (`battery`, 500 mAh by default) and a
+hole for a switch. Print the base open side up and the lid flat side down, without supports.
+
+The STLs are on the [installer page](https://konsumer.github.io/fm1buddy/) and in each release; `tools/cases.sh` makes
+them (with OpenSCAD 2025 or later, or its Docker image). The board sizes come from Adafruit's CAD and the CYD's drawing;
+how far apart the stacked boards are depends on your headers: measure, and set `wing_gap` if yours differ.
+
 ## How it works
 
 ```
@@ -205,6 +216,8 @@ src/feather/         the box (host.cpp), its USB drive and screen
 src/cyd/             the touch screen
 lib/Pico-PIO-USB/    Pico-PIO-USB 0.7.2 (MIT), here so PlatformIO doesn't pull a second TinyUSB in with it
 tools/pi-setup.sh    the Raspberry Pi box
+case/                the 3D-printed cases (OpenSCAD)
+tools/cases.sh       makes their STLs
 tools/cyd.py         drives the CYD over its USB serial: screenshots, taps, fake devices (for testing)
 ```
 
