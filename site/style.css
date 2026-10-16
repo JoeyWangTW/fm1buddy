@@ -186,6 +186,17 @@ h2 {
   color: var(--bad);
 }
 
+pre {
+  overflow-x: auto;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--code);
+}
+
+pre code {
+  padding: 0;
+}
+
 code {
   padding: 1px 5px;
   border-radius: 4px;

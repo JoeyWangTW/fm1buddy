@@ -152,7 +152,10 @@ The first rule that matches a message decides; a message no rule matches passes 
 value, pressure) carries over: a CC turned into a note plays it at the CC's value (0 is note off), and a CC turned into
 a program change picks the program from the value, unless the rule names one.
 
-The rules are saved on the SD card in `midimap.txt`, one per line, so you can also write them on a computer:
+The rules are in a text file, `midimap.txt`, one per line: on the CYD's SD card, or on the Feather's `fm1buddy` drive.
+So you can also write them on a computer, and **the Feather needs no screen for this**: plug its USB-C into a computer,
+open `midimap.txt` on the `fm1buddy` drive (it explains itself), write your rules, save, and eject. The box uses them a
+second after you save, and every time it starts. (When a CYD is wired to it, the CYD's rules are the ones used.)
 
 ```
 from nanokontrol2 ch 1 cc 10 -> ch 2 cc 5

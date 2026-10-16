@@ -579,6 +579,9 @@ void setup() {
   sdOk = SD.begin(5, sdSpi, 20000000);
   if (sdOk) {
     scan();
+    if (!SD.exists(MAP_FILE)) {
+      midimap::save(SD);  // no rules yet: just how to write them
+    }
     midimap::load(SD);
   }
   header(true);

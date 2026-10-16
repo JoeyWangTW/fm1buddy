@@ -49,6 +49,12 @@
           <li>The drive disappears and the Feather restarts: <strong>it's ready.</strong> (A new drive, <code>fm1buddy</code>, shows up: that's for the firmware switcher.)</li>
           <li><strong>Plug in</strong> the hub, then the FM-1 and your controllers. Power the Feather's USB-C from a charger, a power bank or a computer. Its red LED blinks when MIDI goes through.</li>
         </ol>
+        <h2>MIDI mapping, without a screen</h2>
+        <p>Everything passes as it is, until you say otherwise. With the Feather on a computer, open <code>midimap.txt</code> on its <code>fm1buddy</code> drive and add a rule per line, then save and eject. The box uses them a second after you save, and every time it starts:</p>
+        <pre><code>from nanokontrol2 ch 1 cc 10 -> ch 2 cc 5
+cc 1 -> pc
+pb -> drop</code></pre>
+        <p class="note">The file explains the rest. A name matches any device whose name has it in it (any case).</p>
         <p class="note">To update later, do the same again: your settings and files stay.</p>
       </section>
 
