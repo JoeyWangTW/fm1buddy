@@ -47,7 +47,12 @@
             <p class="note copy-status" hidden></p>
           </li>
           <li>The drive disappears and the Feather restarts: <strong>it's ready.</strong> (A new drive, <code>fm1buddy</code>, shows up: that's for the firmware switcher.)</li>
-          <li><strong>Plug in</strong> the hub, then the FM-1 and your controllers. Power the Feather's USB-C from a charger, a power bank or a computer. Its red LED blinks when MIDI goes through.</li>
+          <li>
+            <strong>Plug in:</strong> a USB hub into the Feather's USB-A (<em>HUB</em> on the case), and the FM-1 and your keyboards and controllers into the hub. The Feather's USB-C (<em>POWER</em>) is for power: a charger, a power bank or a computer. The FM-1 can't go there, it needs the hub too. The red LED blinks when MIDI goes through.
+            <pre class="wiring"><code>keyboard ─┐
+          ├─ USB hub ── HUB (USB-A)   Feather   POWER (USB-C) ── charger
+FM-1 ─────┘</code></pre>
+          </li>
         </ol>
         <h2>A case</h2>
         <div class="case" data-case="bare">
@@ -81,7 +86,7 @@ pb -> drop</code></pre>
           <li><strong>Solder the headers</strong> onto the Feather and the FeatherWing, and stack the FeatherWing on top (its buttons up).</li>
           <li><strong>Install the firmware</strong> as for the <a href="#box" data-go="box">USB host box</a>: it's the same file.</li>
           <li><strong>Add FM-1 firmwares.</strong> With the Feather on the computer, open the <code>fm1buddy</code> drive and copy <code>.fwsc</code> packages into its <code>fm1</code> folder (from the <a href="https://fm1.designburgapps.com">FM-1 Firmware Hub</a>, or your own <a href="https://github.com/konsumer/foma">foma</a> builds).</li>
-          <li><strong>Plug in</strong> the hub and the FM-1. The screen shows the FM-1 it found, top right.</li>
+          <li><strong>Plug in</strong> the hub (into <em>HUB</em>), and the FM-1 and your controllers into the hub; power into <em>POWER</em>. The screen shows the FM-1 it found, top right.</li>
         </ol>
         <h2>A case</h2>
         <div class="case" data-case="oled">

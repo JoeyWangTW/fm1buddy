@@ -82,6 +82,12 @@ module wall_hole(axis, c, w, h, r = 1) {
   else translate([c.x - w / 2, c.y + t / 2, c.z - h / 2]) rotate([90, 0, 0]) linear_extrude(t) offset(r) offset(-r) square([w, h]);
 }
 
+// a label engraved in a wall's outside: c is on that face; side is the face (y0, y1, x0, x1), so it reads from there
+module wall_label(t, c, side, halign = "center", size = 3) {
+  r = side == "y0" ? 0 : side == "y1" ? 180 : side == "x1" ? 90 : -90;
+  translate(c) rotate([90, 0, r]) linear_extrude(1.2, center = true) text(t, size = size, halign = halign, valign = "center", font = "Liberation Sans:style=Bold");
+}
+
 // --------------------------------------------------------------------------------------- the box ---
 // cavity [x0, y0] .. [x1, y1], height h (from the floor's top); a snap groove along both long sides
 module tray(c0, c1, h) {
@@ -136,7 +142,15 @@ module feather_base() {
       wall_hole(0, [fc0.x - wall / 2, 12.8, sd_z + PCB + 2], 16, 4.6, 0.8);
       translate([fc0.x - wall - 1, 12.8, sd_z + PCB + 2]) rotate([0, 90, 0]) cylinder(d = 9, h = wall + 1.2);
     }
-    if (battery && switch_hole.x > 0) wall_hole(1, [F.x / 2, fc1.y + wall / 2, bat.z / 2 + 0.5], switch_hole.x, switch_hole.y, 0.5);
+    if (battery && switch_hole.x > 0) {
+      wall_hole(1, [F.x / 2, fc1.y + wall / 2, bat.z / 2 + 0.5], switch_hole.x, switch_hole.y, 0.5);
+      wall_label("BATT", [F.x / 2, fc1.y + wall, bat.z + 3.5], "y1", size = 2.5);
+    }
+    // which port is which, on the front
+    y0 = fc0.y - wall;
+    wall_label("< POWER", [fc0.x + 1, y0, so + 3], "y0", "left");
+    wall_label("HUB >", [fc1.x - 1, y0, so + 3], "y0", "right");
+    if (has_sd) wall_label("< SD", [fc0.x + 1, y0, sd_z + PCB + 2], "y0", "left");
   }
 }
 
@@ -223,7 +237,16 @@ module cyd_base() {
     wall_hole(0, [cc1.x + wall / 2, 21, cyd_z - 2], 28, 7, 1.5);
     // its SD card (on its back, at y = 0)
     wall_hole(1, [48.4, cc0.y - wall / 2, cyd_z - 1.2], 16, 4, 0.8);
-    if (battery && switch_hole.x > 0) wall_hole(1, [60, cc1.y + wall / 2, 6], switch_hole.x, switch_hole.y, 0.5);
+    if (battery && switch_hole.x > 0) {
+      wall_hole(1, [60, cc1.y + wall / 2, 6], switch_hole.x, switch_hole.y, 0.5);
+      wall_label("BATT", [60, cc1.y + wall, 11], "y1", size = 2.5);
+    }
+    // which port is which
+    fx = cf_x + F.y - 11.43;  // the Feather's USB ports, along the box
+    wall_label("POWER", [fx, cc0.y - wall, cf_so + 9], "y0");
+    wall_label("HUB", [fx, cc1.y + wall, cf_so + 11.5], "y1");
+    wall_label("SD", [48.4, cc0.y - wall, cyd_z - 5.5], "y0");
+    wall_label("CYD USB", [cc1.x + wall, 21, cyd_z - 8], "x1", size = 2.5);
   }
 }
 

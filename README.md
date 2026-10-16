@@ -47,8 +47,15 @@ loading the firmware.
    build it (`pio run -e feather`, it's `.pio/build/feather/firmware.uf2`).
 2. Hold the board's **BOOT** button while you plug its USB-C into a computer. A drive called `RPI-RP2` appears.
 3. Drag `fm1buddy-feather.uf2` onto it. The drive disappears; the box is ready. (You only do this once.)
-4. Plug the hub into the USB-A socket, and the FM-1 and your controllers into the hub. Power the board's USB-C from a
-   charger or power bank (or a computer).
+4. Plug a USB hub into the USB-A socket (`HUB` on the case), and the FM-1 and your controllers into the hub. Power the
+   board's USB-C (`POWER`) from a charger, a power bank or a computer. The FM-1 can't go into the USB-C: it's a USB
+   device, like the Feather's USB-C, so it needs the hub too.
+
+   ```
+   keyboard ─┐
+             ├─ USB hub ── HUB (USB-A)   Feather   POWER (USB-C) ── charger
+   FM-1 ─────┘
+   ```
 
 The red LED blinks when MIDI passes through. If a device keeps dropping out, it needs more power than the board gives:
 use a hub with its own power supply.
