@@ -31,14 +31,25 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p site/fw
-          if tag=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName 2>/dev/null); then
-            gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir site/fw \
-              --pattern fm1buddy-cyd.bin --pattern fm1buddy-feather.uf2
+          # the newest release that has its files (one made by hand gets them when its tag's build is done, and
+          # that build deploys this again)
+          tag=
+          for t in $(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --json tagName -q '.[].tagName'); do
+            if gh release download "$t" --repo "$GITHUB_REPOSITORY" --dir site/fw --clobber \
+              --pattern fm1buddy-cyd.bin --pattern fm1buddy-feather.uf2 2>/dev/null &&
+              [ -f site/fw/fm1buddy-cyd.bin ] && [ -f site/fw/fm1buddy-feather.uf2 ]; then
+              tag=$t
+              break
+            fi
+            rm -f site/fw/*
+          done
+          if [ -n "$tag" ]; then
             jq -n --arg tag "$tag" '{tag: $tag}' > site/fw/version.json
             jq -n --arg v "$tag" '{name: "fm1buddy", version: $v, new_install_prompt_erase: true,
               builds: [{chipFamily: "ESP32", parts: [{path: "fm1buddy-cyd.bin", offset: 0}]}]}' > site/fw/manifest.json
           else
-            echo "no release yet: the page says so"
+            rm -f site/fw/*
+            echo "no release with firmware yet: the page says so"
           fi
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
