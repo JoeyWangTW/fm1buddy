@@ -2,6 +2,7 @@
 // on core 0:
 // - the USB drive: the Feather's USB-C shows its flash to a computer, for firmwares (fm1/) and midimap.txt
 // - the link to a CYD on TX/RX (common/fm1link.h), passed through to the box
+// - the MIDI mapping rules in midimap.txt on the drive (edited there, or on the screen)
 // - with a 128x64 OLED and buttons (ui.cpp): installing firmware, the devices, MIDI thru and mapping
 #include <Adafruit_TinyUSB.h>
 #include <Arduino.h>
@@ -20,7 +21,12 @@ static Adafruit_USBD_MSC msc;
 static volatile uint32_t mscWriteAt;  // the computer wrote to the drive: our view of it is old
 static volatile bool hostReady;
 static link_rx_t uartRx;
-static bool ui;  // a screen is attached: this board is the one setting routing and mapping
+static bool ui;       // a screen is attached
+static bool cydSeen;  // a CYD talks to the box: it sets the routing and mapping (from its own SD card)
+
+static bool local() {  // this board sets the routing and the mapping
+  return ui || !cydSeen;
+}
 
 // --------------------------------------------------------------------------------------- the USB drive ---
 static uint16_t sectorSize = 512;
@@ -42,6 +48,9 @@ static void driveBegin() {
   FatFS.begin();  // formats it the first time
   if (!FatFS.exists("/fm1")) {
     FatFS.mkdir("/fm1");
+  }
+  if (!FatFS.exists(MAP_FILE)) {
+    midimap::save(FatFS);  // no rules yet: just how to write them
   }
   FatFS.setConfig(FatFSConfig(false));  // never format it again by surprise (a remount while the computer writes)
   fatfs::LBA_t sectors;
@@ -67,9 +76,11 @@ static void driveFresh() {
     mscWriteAt = 0;
     FatFS.end();
     FatFS.begin();
-    if (ui) {
+    if (local()) {
       midimap::load(FatFS);
       midimap::push();
+    }
+    if (ui) {
       uiDriveChanged();
     }
   }
@@ -97,6 +108,7 @@ static void pump() {
   int c;
   while ((c = Serial1.read()) >= 0) {
     if (link_rx_byte(&uartRx, (uint8_t)c)) {
+      cydSeen = true;
       queueSend(uartRx.type, uartRx.dev, uartRx.payload, uartRx.n);
     }
   }
@@ -120,16 +132,14 @@ void setup() {
   SDFS.setConfig(SDFSConfig(SD_CS, SPI_HALF_SPEED, SPI));
   sdOk = SDFS.begin();
   hub.begin(queueSend, pump);
+  midimap::load(FatFS);
   ui = uiBegin();
-  if (ui) {
-    midimap::load(FatFS);
-  }
 }
 
 void loop() {
   static bool box;
   hub.poll();
-  if (ui) {
+  if (local()) {
     if (hub.box != box) {
       box = hub.box;
       hub.routeAll(thru);
@@ -138,6 +148,8 @@ void loop() {
       hub.changed = false;
       midimap::push();
     }
+  }
+  if (ui) {
     uiLoop();
   }
   driveFresh();

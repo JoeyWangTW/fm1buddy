@@ -203,12 +203,29 @@ bool midimap::load(fs::FS& fs) {
   return true;
 }
 
+// the top of the file, so it explains itself
+static const char HELP[] =
+    "# fm1buddy MIDI mapping: one rule per line. Everything passes as it is, until a rule says otherwise.\n"
+    "#\n"
+    "#   [from NAME] [ch N] [TYPE [NUM]] -> [to NAME] [ch N] [TYPE [NUM]]\n"
+    "#   [from NAME] [ch N] [TYPE [NUM]] -> drop\n"
+    "#\n"
+    "# TYPE is note, cc, pc (program change), at (channel pressure) or pb (pitch bend). NAME is part of a device's\n"
+    "# name (any case; \"quote it\" if it has spaces). On the right, what you leave out stays as it came in. The first\n"
+    "# rule that matches a message decides. For example:\n"
+    "#\n"
+    "#   from nanokontrol2 ch 1 cc 10 -> ch 2 cc 5      CC 10 from the nanoKONTROL2 becomes CC 5 on channel 2\n"
+    "#   from \"launchkey mini\" note 36 -> to fm-1 note 38\n"
+    "#   cc 1 -> pc                                     the mod wheel picks programs\n"
+    "#   pb -> drop                                     no pitch bend\n"
+    "#\n";
+
 bool midimap::save(fs::FS& fs) {
   File f = fs.open(MAP_FILE, "w");
   if (!f) {
     return false;
   }
-  f.print("# fm1buddy MIDI mapping, one rule per line: [from NAME] [ch N] [TYPE [NUM]] -> drop | [to NAME] [ch N] [TYPE [NUM]]\n");
+  f.print(HELP);
   char line[128];
   for (int i = 0; i < count; i++) {
     format(rules[i], line, sizeof line);
