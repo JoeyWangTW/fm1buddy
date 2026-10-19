@@ -189,7 +189,7 @@ void fm1::wait(uint32_t ms) {
 
 bool fm1::candidate(uint8_t d) {
   static const char* NAMES[] = {"fm-1", "felucca", "ota", "composite", "sinco", "usb-midi"};
-  if (!hub.dev[d].on) {
+  if (d >= LINK_USB || !hub.dev[d].on) {  // installing needs USB
     return false;
   }
   char lower[sizeof hub.dev[d].name];

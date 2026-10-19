@@ -10,6 +10,9 @@ Hardware helpers for the M-VAVE FM-1:
 The switcher is either a 128x64 OLED and buttons on the box itself (one board, a little soldering), or a "Cheap Yellow
 Display" touch screen (ESP32-2432S028R) wired to the box with three wires. The box works on its own too.
 
+With a CYD, **Bluetooth MIDI** joins in: a phone, tablet or computer can connect to the CYD, and the CYD connects to
+Bluetooth MIDI keyboards and synths. They play and hear the devices on the hub as if they were plugged into it.
+
 **Install it from the browser:** <https://konsumer.github.io/fm1buddy/>: step by step, for each board, with the latest
 release.
 
@@ -186,11 +189,27 @@ fm1/
 - Tap a package, then **INSTALL**. It checks that the package is for the FM-1 that is plugged in, then installs it.
   Keep the FM-1 plugged in until it says _Installed_.
 - If an install was cut off, the FM-1 waits in update mode: tap a package and **FINISH** writes it.
-- **DEVICES** shows what's on the hub, and turns **MIDI THRU** (the box's everything-to-everything) on or off. While
-  installing, nothing else reaches the FM-1. **MAP** goes to the MIDI mapping.
+- **DEVICES** shows what's on the hub (and connected over Bluetooth), and turns **MIDI THRU** (the box's
+  everything-to-everything) on or off. While installing, nothing else reaches the FM-1. **MAP** goes to the MIDI
+  mapping, **BLUETOOTH** to [Bluetooth MIDI](#bluetooth-midi).
 
 Installing firmware is at your own risk. If the FM-1 won't start, hold **OCT-** while switching it on (the USB rescue)
 and install again.
+
+### Bluetooth MIDI
+
+The CYD has Bluetooth, and Bluetooth MIDI devices become devices on the box, next to the ones on the hub: MIDI THRU
+sends them everything and everything they send, and mapping rules can name them (`from "smk-25" cc 1 -> ch 2 cc 7`).
+The box needs this release's firmware too (the BLUETOOTH page says so if it doesn't).
+
+- **A phone, tablet or computer:** connect it to **fm1buddy** (on a Mac: Audio MIDI Setup → MIDI Studio → the
+  Bluetooth button; on iOS and Android: in the music app's Bluetooth MIDI settings). On the box it's
+  `bluetooth host`.
+- **Keyboards and synths:** on **DEVICES**, tap **BLUETOOTH**. It lists the Bluetooth MIDI devices around: tap one to
+  connect. It's remembered, and connected again whenever it's switched on near the CYD; tap it again to forget it.
+- Up to 3 Bluetooth connections in all (the phone or computer counts as one). **BLUETOOTH: ON/OFF** turns it all off.
+
+Bluetooth adds a little delay next to USB, and more while the CYD uses Wi-Fi (**ONLINE**).
 
 ### MIDI mapping
 
@@ -261,7 +280,9 @@ CYD (screen, touch, SD:/fm1)  <-- UART 1 Mbaud -->  Feather RP2040 (USB host)  -
   OLED screen (`ui.cpp`).
 - `src/pico/` is the ultra-light box: the same `host.cpp`, on the RP2040's own USB port (TinyUSB host), and a USB
   stick on the hub for `midimap.txt` (`stick.cpp`: SdFat on TinyUSB's mass storage host).
-- `src/cyd/` is the touch screen. `fwhub.cpp` reads the Firmware Hub's `catalog.json` over HTTPS (it trusts the roots
+- `src/cyd/` is the touch screen. `ble.cpp` is Bluetooth MIDI ([NimBLE](https://github.com/h2zero/NimBLE-Arduino),
+  BLE MIDI 1.0): the CYD's own devices, which the link carries to the box as devices 4-7, where they're routed and
+  mapped with the rest. `fwhub.cpp` reads the Firmware Hub's `catalog.json` over HTTPS (it trusts the roots
   in `roots.h`, made by `tools/roots.py` from Mozilla's list). Of each entry in `firmwares` it uses `name`, `author`,
   `version`, `pkg`, `product`, `size`, `sha256` and `beta`; of `stock`, `pkg`, `product`, `size` and `sha256`.
 - `src/common/` is what both screens use. `fm1ota.cpp` is the FM-1's update protocol (M-UPGRADE compatible), ported from foma's
