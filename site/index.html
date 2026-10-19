@@ -86,7 +86,7 @@ pb -> drop</code></pre>
         <ol class="steps">
           <li><strong>Solder the headers</strong> onto the Feather and the FeatherWing, and stack the FeatherWing on top (its buttons up).</li>
           <li><strong>Install the firmware</strong> as for the <a href="#box" data-go="box">USB host box</a>: it's the same file.</li>
-          <li><strong>Add FM-1 firmwares.</strong> With the Feather on the computer, open the <code>fm1buddy</code> drive and copy <code>.fwsc</code> packages into its <code>fm1</code> folder (from the <a href="https://fm1.designburgapps.com">FM-1 Firmware Hub</a>, or your own <a href="https://github.com/konsumer/foma">foma</a> builds).</li>
+          <li><strong>Add FM-1 firmwares.</strong> With the Feather on the computer, open the <code>fm1buddy</code> drive and copy <code>.fwsc</code> packages into its <code>fm1</code> folder (from the <a href="https://thefirmwarehub.com">FM-1 Firmware Hub</a>, or your own <a href="https://github.com/konsumer/foma">foma</a> builds).</li>
           <li><strong>Plug in</strong> the hub (into <em>HUB</em>), and the FM-1 and your controllers into the hub; power into <em>POWER</em>. The screen shows the FM-1 it found, top right.</li>
         </ol>
         <h2>A case</h2>
@@ -122,7 +122,7 @@ pb -> drop</code></pre>
 
       <!-- the CYD -->
       <section id="cyd" class="panel" hidden>
-        <p class="what">An ESP32-2432S028R "Cheap Yellow Display" touch screen, wired to the USB host box: it installs FM-1 firmwares from its SD card, and edits the MIDI mapping.</p>
+        <p class="what">An ESP32-2432S028R "Cheap Yellow Display" touch screen, wired to the USB host box: it gets FM-1 firmwares from the <a href="https://thefirmwarehub.com">FM-1 Firmware Hub</a> over Wi-Fi (or from its SD card), installs them, and edits the MIDI mapping.</p>
         <h2>You need</h2>
         <ul>
           <li>the <a href="#box" data-go="box">USB host box</a>, installed</li>
@@ -144,7 +144,7 @@ pb -> drop</code></pre>
             </div>
             <p class="note">No port in the list? Windows and older macOS may need the <a href="https://www.wch-ic.com/downloads/CH341SER_EXE.html">CH340 driver</a>. If it can't connect, hold the CYD's BOOT button while it starts.</p>
           </li>
-          <li><strong>The SD card:</strong> make a folder called <code>fm1</code> on it, and copy FM-1 firmware packages (<code>.fwsc</code>) into it. Put it in the CYD.</li>
+          <li><strong>The SD card</strong> (FAT32): put it in the CYD. Firmwares go into its <code>fm1</code> folder: the CYD downloads them there itself (below), or copy <code>.fwsc</code> packages there on a computer.</li>
           <li>
             <strong>Wire it</strong> to the Feather, from the CYD's <code>CN1</code> connector:
             <table>
@@ -172,6 +172,7 @@ pb -> drop</code></pre>
             Power the CYD from its own USB (a 2-port charger powers both).
           </li>
           <li><strong>Turn them on.</strong> The top right of the CYD shows the FM-1 on the hub: tap a package, then <em>INSTALL</em>. <em>DEVICES</em> → <em>MAP</em> is the MIDI mapping.</li>
+          <li><strong>New firmwares, without a computer:</strong> tap <em>ONLINE</em>. The first time, pick your Wi-Fi and type its password (or put a <code>wifi.txt</code> on the card: the network's name on the first line, its password on the second). It lists the Firmware Hub's packages for the FM-1 on the hub; tap one, <em>DOWNLOAD</em>, then <em>INSTALL</em>. Each download is checked (its size, sha256 and identity) before it's kept.</li>
         </ol>
         <h2>A case</h2>
         <div class="case" data-case="cyd">
@@ -224,7 +225,7 @@ FM-1 ─────┘                 │
         </div>
         <h2 id="lite-limits">What it can't do</h2>
         <ul>
-          <li><strong>No USB drive and no screen:</strong> its only USB port is the host. Installing FM-1 firmware needs a <a href="#cyd" data-go="cyd">CYD</a> (wired as below), or plug the FM-1 straight into a computer and use the <a href="https://fm1.designburgapps.com">FM-1 Firmware Hub</a>.</li>
+          <li><strong>No USB drive and no screen:</strong> its only USB port is the host. Installing FM-1 firmware needs a <a href="#cyd" data-go="cyd">CYD</a> (wired as below), or plug the FM-1 straight into a computer and use the <a href="https://thefirmwarehub.com">FM-1 Firmware Hub</a>.</li>
           <li><strong>MIDI mapping</strong> comes from a USB stick: put <code>midimap.txt</code> on it (FAT32; the rules are as on the <a href="#box" data-go="box">USB host box</a>), and plug it into the hub. The box reads it when the stick goes in and keeps the rules until it's switched off. With a CYD, the CYD's rules win.</li>
           <li><strong>No battery inside:</strong> a power bank is the battery. Some switch off when little is drawn.</li>
           <li><strong>MIDI thru</strong> (everything to everything) is always on.</li>

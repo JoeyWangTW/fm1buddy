@@ -107,7 +107,7 @@ What it can't do, next to the Feather:
 
 - **No USB drive** (its USB port is the host), so no firmwares on the box, and no screen of its own. Installing FM-1
   firmware needs a CYD (from its SD card), or plug the FM-1 straight into a computer and use the
-  [FM-1 Firmware Hub](https://fm1.designburgapps.com).
+  [FM-1 Firmware Hub](https://thefirmwarehub.com).
 - **MIDI mapping:** put `midimap.txt` (the same rules as below) on a USB stick (FAT32), and plug the stick into the hub:
   the box reads it when the stick goes in, and keeps the rules until it's switched off. With a CYD, the CYD's rules
   win.
@@ -165,7 +165,7 @@ USB-C) to `VIN` on the CYD's **P1** connector.
 
 ### The SD card
 
-Put FM-1 firmware packages (`.fwsc`, from the [FM-1 Firmware Hub](https://fm1.designburgapps.com) or a
+Put FM-1 firmware packages (`.fwsc`, from the [FM-1 Firmware Hub](https://thefirmwarehub.com) or a
 [foma](https://github.com/konsumer/foma) build) in a folder called `fm1` on a FAT32 card:
 
 ```
@@ -178,6 +178,11 @@ fm1/
 ### Using it
 
 - **FILES** lists `fm1/`, with each package's identity (`FM-1_961`). The top right shows the FM-1 on the hub.
+- **ONLINE** gets packages from the [FM-1 Firmware Hub](https://thefirmwarehub.com) over Wi-Fi, onto the SD card:
+  no computer needed. The first time, it lists the Wi-Fi networks: tap yours and type its password (or put a
+  `wifi.txt` on the card: the network's name on the first line, its password on the second). It shows the packages for
+  the FM-1 on the hub (M-VAVE's own first; green: on the card already). Tap one, **DOWNLOAD**, then **INSTALL**. Each
+  download is checked against the catalogue's size and sha256, and the package's own identity, before it's kept.
 - Tap a package, then **INSTALL**. It checks that the package is for the FM-1 that is plugged in, then installs it.
   Keep the FM-1 plugged in until it says _Installed_.
 - If an install was cut off, the FM-1 waits in update mode: tap a package and **FINISH** writes it.
@@ -256,7 +261,9 @@ CYD (screen, touch, SD:/fm1)  <-- UART 1 Mbaud -->  Feather RP2040 (USB host)  -
   OLED screen (`ui.cpp`).
 - `src/pico/` is the ultra-light box: the same `host.cpp`, on the RP2040's own USB port (TinyUSB host), and a USB
   stick on the hub for `midimap.txt` (`stick.cpp`: SdFat on TinyUSB's mass storage host).
-- `src/cyd/` is the touch screen.
+- `src/cyd/` is the touch screen. `fwhub.cpp` reads the Firmware Hub's `catalog.json` over HTTPS (it trusts the roots
+  in `roots.h`, made by `tools/roots.py` from Mozilla's list). Of each entry in `firmwares` it uses `name`, `author`,
+  `version`, `pkg`, `product`, `size`, `sha256` and `beta`; of `stock`, `pkg`, `product`, `size` and `sha256`.
 - `src/common/` is what both screens use. `fm1ota.cpp` is the FM-1's update protocol (M-UPGRADE compatible), ported from foma's
   `web/fm1ota.js`: the FM-1 asks for parts of the package with SysEx read requests, and the CYD answers each one
   straight from the SD card. First the running firmware checks the package and starts the update loader; then the
@@ -272,6 +279,7 @@ lib/Pico-PIO-USB/    Pico-PIO-USB 0.7.2 (MIT), here so PlatformIO doesn't pull a
 tools/pi-setup.sh    the Raspberry Pi box
 case/                the 3D-printed cases (OpenSCAD)
 tools/cases.sh       makes their STLs
+tools/roots.py       the CYD's trusted root certificates (src/cyd/roots.h)
 tools/cyd.py         drives the CYD over its USB serial: screenshots, taps, fake devices (for testing)
 ```
 
