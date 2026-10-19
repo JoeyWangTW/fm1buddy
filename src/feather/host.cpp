@@ -1,14 +1,36 @@
-// The box, on core 1 (host.h). Started as tools/usbhost in FOMAJAM.
+// The box, on core 1 (host.h): on the Feather's USB-A (PIO USB), or the board's own USB port (the ultra-light
+// build). Started as tools/usbhost in FOMAJAM.
 #include "host.h"
 
 #include <Adafruit_TinyUSB.h>
 
 #include "fm1map.h"
+#ifdef USE_TINYUSB_HOST
+#include "stick.h"
+#else
 #include "pio_usb.h"
+#endif
+#ifdef LED_RGB
+#include <Adafruit_NeoPixel.h>
+#endif
 
 queue_t toHost, fromHost;
 static Adafruit_USBH_Host USBHost;
 static uint32_t led_off_at;
+
+#ifdef LED_RGB
+static Adafruit_NeoPixel rgb(1, LED_RGB, NEO_GRB + NEO_KHZ800);
+#endif
+
+/* the activity light: the Feather's red LED, or an RGB LED (dim white) */
+static void led(bool on) {
+#ifdef LED_RGB
+  rgb.setPixelColor(0, on ? rgb.Color(24, 24, 24) : 0);
+  rgb.show();
+#else
+  digitalWrite(PIN_LED, on);
+#endif
+}
 
 void hostQueues() {
   queue_init(&toHost, sizeof(HostFrame), 16);
@@ -121,7 +143,9 @@ static void forward(void) {
         link_send(LINK_MIDI, from, bytes, nb);
         nb = 0;
       }
-      digitalWrite(PIN_LED, 1);
+      if (!led_off_at) {
+        led(true);
+      }
       led_off_at = millis() + 20;
       uint8_t q[4] = {p[0], p[1], p[2], p[3]}, dest = route[from];
       if (p[0] >= 0x8 && p[0] <= 0xE && n_rules) {
@@ -199,23 +223,38 @@ static void from_link(void) {
 }
 
 void hostSetup() {
+#ifdef LED_RGB
+  rgb.begin();
+#else
   pinMode(PIN_LED, OUTPUT);
+#endif
+#ifdef PIN_5V_EN
   pinMode(PIN_5V_EN, OUTPUT);
   digitalWrite(PIN_5V_EN, HIGH);  // the USB-A socket's 5 V
+#endif
   for (uint8_t i = 0; i < CFG_TUH_MIDI; i++) {
     route[i] = LINK_ROUTE_ALL;
   }
   uint8_t v = LINK_VERSION;
   link_send(LINK_HELLO, 0, &v, 1);
+#ifdef USE_TINYUSB_HOST
+  USBHost.begin(0);  // the board's own USB port
+  led(true);         // it's alive
+  led_off_at = millis() + 300;
+#else
   pio_usb_configuration_t cfg = PIO_USB_DEFAULT_CONFIG;
   cfg.pin_dp = PIN_USB_HOST_DP;
   USBHost.configure_pio_usb(1, &cfg);
   USBHost.begin(1);
+#endif
 }
 
 void hostLoop() {
   USBHost.task();
   ask_names();
+#ifdef USE_TINYUSB_HOST
+  stickTask();
+#endif
   forward();
   from_link();
   for (uint8_t to = 0; to < CFG_TUH_MIDI; to++) {
@@ -224,7 +263,7 @@ void hostLoop() {
     }
   }
   if (led_off_at && (int32_t)(millis() - led_off_at) >= 0) {
-    digitalWrite(PIN_LED, 0);
+    led(false);
     led_off_at = 0;
   }
 }

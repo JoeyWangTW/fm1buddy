@@ -5,17 +5,18 @@
 //            sd       with the Adalogger FeatherWing (SD card) on top
 //            sd_oled  Feather, Adalogger, OLED FeatherWing
 //            cyd      the CYD (ESP32-2432S028R) in front, the Feather behind it
-//   battery  room for a flat LiPo, and a hole for a small slide switch
+//            lite     ultra-light: a Waveshare RP2040-Zero, its USB-C the only port (a slot for a CYD's wires)
+//   battery  room for a flat LiPo, and a hole for a small slide switch (not lite: its battery is a power bank)
 //   part     base, lid, or preview (the case open, with stand-ins for the boards)
 //
 // openscad -D 'config="oled"' -D 'part="lid"' -o lid.stl fm1buddy-case.scad (tools/cases.sh makes them all)
 //
 // The board sizes are measured from Adafruit's CAD (Adafruit_CAD_Parts: 5723, 4650, 2922) and the CYD's
-// drawing (ESP32-Cheap-Yellow-Display, Dimensions.png). Feather coordinates: x along the board from the USB-C end,
+// drawing (ESP32-Cheap-Yellow-Display, Dimensions.png); the RP2040-Zero from Waveshare's (23.5 x 18). Feather coordinates: x along the board from the USB-C end,
 // y across it from the 16-pin header's edge, z up from the board's underside.
 
 /* [What] */
-config = "oled";  // [bare, oled, sd, sd_oled, cyd]
+config = "oled";  // [bare, oled, sd, sd_oled, cyd, lite]
 battery = false;
 part = "preview";  // [preview, base, lid]
 section = false;   // preview: cut in half, to see the inside
@@ -63,6 +64,10 @@ CYD_HOLES = [[4, 4], [82, 4], [4, 46], [82, 46]];
 CYD_HOLE_D = 3.2;
 CYD_SCREEN = [62, 47];                                       // the window: active area 57.6 x 43.2, centered
 CYD_FRONT = 4.6;                                             // the display and touch panel, above its board
+
+ZERO = [23.5, 18];                                           // RP2040-Zero: USB-C at x = 0
+ZERO_PCB = 1.0;
+ZERO_USB = [8.94, 3.26];                                     // its USB-C socket, centered on y; it overhangs a little
 
 has_sd = config == "sd" || config == "sd_oled";
 has_oled = config == "oled" || config == "sd_oled";
@@ -259,9 +264,53 @@ module cyd_lid() {
   }
 }
 
+// ------------------------------------------------------------------------------------- ultra-light ---
+// the RP2040-Zero on a low platform (so the OTG adapter's plug body clears the floor), its USB-C through the x = 0
+// wall; the lid holds it down at the far corners and over the USB socket, and is thin over the board, so the RGB LED
+// shows through. BOOT is under the lid (only needed to update the box's firmware)
+z_so = 1.0;
+z_top = z_so + ZERO_PCB;
+z_usb = z_top + ZERO_USB.y / 2;  // the socket's center
+lc0 = [-1.0, -0.4];
+lc1 = [ZERO.x + 0.4, ZERO.y + 0.4];
+l_inner_h = z_top + 5.6;
+
+module lite_base() {
+  difference() {
+    union() {
+      tray(lc0, lc1, l_inner_h);
+      rbox([1, 1, -eps], [ZERO.x - 1, ZERO.y - 1, z_so], 0.5);
+    }
+    // the OTG adapter's plug (its body is bigger than the socket): open at the top, the lid closes it
+    pb = z_usb - 3.5;
+    wall_hole(0, [lc0.x - wall / 2, ZERO.y / 2, (pb + l_inner_h + 2) / 2], 12.5, l_inner_h + 2 - pb, 2);
+    // the CYD's 4 wires (5V, GND, GP0, GP1): a slot in the far wall, closed by the lid
+    wall_hole(0, [lc1.x + wall / 2, ZERO.y / 2, l_inner_h - 1], 6, 4, 0.8);
+    wall_label("CYD", [lc1.x + wall, ZERO.y / 2, z_top], "x1", size = 2.5);
+    wall_label("< HUB+POWER", [lc0.x + 0.5, lc0.y - wall, z_usb], "y0", "left", size = 2.2);
+  }
+}
+
+module lite_lid() {
+  difference() {
+    lid_plate(lc0, lc1);
+    // no lip at the USB end, where the socket and the soldered wires are
+    translate([lc0.x - 1, lc0.y - 1, -lip_h - 1]) cube([10, lc1.y - lc0.y + 2, lip_h + 1]);
+    // thin over the board: the LED shows through
+    translate([2, 2, -1]) cube([ZERO.x - 4, ZERO.y - 4, 1 + lid_t - 0.6]);
+  }
+  down = l_inner_h - z_top;
+  for (y = [1.5, ZERO.y - 1.5]) translate([ZERO.x - 1.5, y, -down]) cylinder(d = 2, h = down + eps);
+  bar = l_inner_h - (z_top + ZERO_USB.y) - 0.1;
+  translate([4, ZERO.y / 2 - 5, -bar]) cube([2, 10, bar + eps]);
+}
+
 // ---------------------------------------------------------------------------------------- previews ---
 module stand_ins() {
-  if (config == "cyd") {
+  if (config == "lite") {
+    translate([0, 0, z_so]) color("#222") cube([ZERO.x, ZERO.y, ZERO_PCB]);
+    translate([-0.6, ZERO.y / 2 - ZERO_USB.x / 2, z_top]) color("#aaa") cube([7.3, ZERO_USB.x, ZERO_USB.y]);
+  } else if (config == "cyd") {
     cyd_feather_place() translate([0, 0, cf_so]) color("#333") cube([F.x, F.y, PCB]);
     cyd_feather_place() color("#aaa") cube2([F_USBA[0].x, F_USBA[0].y, cf_so + F_USBA[0].z], [F_USBA[1].x, F_USBA[1].y, cf_so + F_USBA[1].z]);
     translate([0, 0, cyd_z]) color("#ffd400", 0.8) cube([CYD.x, CYD.y, PCB]);
@@ -288,12 +337,20 @@ module stand_ins() {
 module cut() {
   if (section) intersection() {
     children();
-    translate([-200, config == "cyd" ? 25 : 11.43, -200]) cube(400);
+    translate([-200, config == "cyd" ? 25 : config == "lite" ? ZERO.y / 2 : 11.43, -200]) cube(400);
   }
   else children();
 }
 
-cut() if (config == "cyd") {
+cut() if (config == "lite") {
+  if (part == "base") lite_base();
+  if (part == "lid") translate([0, 0, lid_t]) mirror([0, 0, 1]) lite_lid();
+  if (part == "preview") {
+    color(BASE_COLOR) lite_base();
+    stand_ins();
+    translate([0, 0, l_inner_h + 12]) color(LID_COLOR) lite_lid();
+  }
+} else if (config == "cyd") {
   if (part == "base") cyd_base();
   if (part == "lid") translate([0, 0, lid_t]) mirror([0, 0, 1]) cyd_lid();
   if (part == "preview") {

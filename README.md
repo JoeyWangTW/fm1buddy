@@ -24,17 +24,19 @@ tracks. There's nothing to set up: no routing, no commands.
 Installing firmware needs the box too: the FM-1 only takes updates over USB (its TRS MIDI port can't do it), and the
 CYD can't be a USB host.
 
-Two ways to build one, both from ready-made parts and with no soldering:
+Three ways to build one, all from ready-made parts and with no soldering:
 
-|                      | A: Feather (recommended)                             | B: Raspberry Pi                                                                                         |
-| -------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| Board                | Adafruit Feather RP2040 with USB Type A Host (#5723) | Raspberry Pi Zero 2 W (or any Raspberry Pi with USB-A)                                                  |
-| Also needed          | a USB hub; a USB-C charger or power bank             | a USB OTG adapter (micro-USB to USB-A), a powered USB hub, a 5 V 2.5 A micro-USB supply, a microSD card |
-| Setup                | drag one file onto it                                | install Raspberry Pi OS, run one command                                                                |
-| Ready after power-on | under a second                                       | about 30 seconds                                                                                        |
-| Devices              | up to 4 on the hub                                   | as many as the hub has ports                                                                            |
-| Firmware switcher    | yes: with an OLED FeatherWing, or a CYD              | no                                                                                                      |
-| MIDI mapping         | yes                                                  | no                                                                                                      |
+|                      | A: Feather (recommended)                             | B: Raspberry Pi                                                                                         | C: ultra-light                                                               |
+| -------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Board                | Adafruit Feather RP2040 with USB Type A Host (#5723) | Raspberry Pi Zero 2 W (or any Raspberry Pi with USB-A)                                                  | Waveshare RP2040-Zero                                                        |
+| Also needed          | a USB hub; a USB-C charger or power bank             | a USB OTG adapter (micro-USB to USB-A), a powered USB hub, a 5 V 2.5 A micro-USB supply, a microSD card | a USB-C OTG adapter with a charging port, a USB hub, a charger or power bank |
+| Ports on the box     | 2 (USB-C power, USB-A hub)                           | 2                                                                                                       | 1 (USB-C, the adapter splits it)                                             |
+| Battery inside       | optional (a LiPo)                                    | no                                                                                                      | no: use a power bank                                                         |
+| Setup                | drag one file onto it                                | install Raspberry Pi OS, run one command                                                                | drag one file onto it                                                        |
+| Ready after power-on | under a second                                       | about 30 seconds                                                                                        | under a second                                                               |
+| Devices              | up to 4 on the hub                                   | as many as the hub has ports                                                                            | up to 4 on the hub, and a USB stick                                          |
+| Firmware switcher    | yes: with an OLED FeatherWing, or a CYD              | no                                                                                                      | only with a CYD                                                              |
+| MIDI mapping         | yes                                                  | no                                                                                                      | yes: `midimap.txt` on a USB stick, or a CYD                                  |
 
 Either way you also need the cables you already have: one for the FM-1 (USB-A to USB-C) and one for each controller.
 
@@ -75,6 +77,47 @@ use a hub with its own power supply.
 
 From then on it starts by itself whenever the Pi is powered. It checks every 2 seconds for devices that came or went
 (`tools/pi-setup.sh` is the whole thing). Wi-Fi is only needed for setup.
+
+### C: ultra-light: [Waveshare RP2040-Zero](https://www.waveshare.com/wiki/RP2040-Zero)
+
+The smallest and cheapest box: a thumbnail-sized board whose only USB-C port is the USB host. A **USB-C OTG adapter
+with a charging port** (a Y-adapter: USB-C plug, a USB-A socket, a USB-C charging socket) splits that port into the
+hub and the power, which feeds the board, the hub and everything on it.
+
+The adapter must pass charging and data at the same time, to a device that is the USB host while it is powered: look
+for one sold for the **Chromecast with Google TV** (the same situation). Many 3-port "splitters" can't (they say
+"does not support charging and data at the same time"). Hubs with a power input made for the Chromecast or Fire TV
+(USB-C plug, USB-A ports, a charging port) are the adapter and the hub in one.
+
+1. Get `fm1buddy-pico.uf2` from the [latest release](https://github.com/konsumer/fm1buddy/releases/latest), or build
+   it (`pio run -e pico`).
+2. Hold the board's **BOOT** button while you plug it into a computer (straight in, not through the adapter), and drag
+   the file onto the `RPI-RP2` drive.
+3. Plug in the adapter, a hub into its USB-A socket, a charger or power bank into its charging socket, and the FM-1
+   and your controllers into the hub. The LED flashes white once when it starts, and when MIDI passes through.
+
+   ```
+   keyboard ─┐
+             ├─ USB hub ── OTG adapter ── RP2040-Zero
+   FM-1 ─────┘                 │
+                   charger ────┘ (its charging port)
+   ```
+
+What it can't do, next to the Feather:
+
+- **No USB drive** (its USB port is the host), so no firmwares on the box, and no screen of its own. Installing FM-1
+  firmware needs a CYD (from its SD card), or plug the FM-1 straight into a computer and use the
+  [FM-1 Firmware Hub](https://fm1.designburgapps.com).
+- **MIDI mapping:** put `midimap.txt` (the same rules as below) on a USB stick (FAT32), and plug the stick into the hub:
+  the box reads it when the stick goes in, and keeps the rules until it's switched off. With a CYD, the CYD's rules
+  win.
+- **No battery inside:** a power bank is the battery. Some switch off when little is drawn; a hub's LED, or the FM-1
+  charging, usually keeps them on.
+- MIDI thru (everything to everything) is always on.
+- To update the box itself, open the lid for BOOT.
+
+A CYD works with it too: its CN1 to the Zero's `GND`, `GP0` (TX, to the CYD's IO22) and `GP1` (RX, to IO27), and its
+`VIN` (P1) to the Zero's `5V` pin if you don't power it on its own.
 
 **Avoid loops:** if a controller sends back everything it receives ("MIDI thru" or "echo" in its settings), turn
 that off, or messages go round in circles.
@@ -190,8 +233,9 @@ If the colors look inverted, your CYD is the two-USB-port revision: uncomment `T
 ## Cases
 
 `case/fm1buddy-case.scad` (OpenSCAD) is a snap-fit case for each setup: `bare` (the box), `oled` (with the OLED
-FeatherWing; tabs in the lid press its buttons), `sd` and `sd_oled` (with an Adalogger FeatherWing), and `cyd` (the
-CYD in front, the Feather behind it). Each also comes with room for a flat LiPo (`battery`, 500 mAh by default) and a
+FeatherWing; tabs in the lid press its buttons), `sd` and `sd_oled` (with an Adalogger FeatherWing), `cyd` (the
+CYD in front, the Feather behind it), and `lite` (the RP2040-Zero: one USB-C hole, a slot for a CYD's wires, and a lid
+thin enough for its LED to shine through). Each Feather case also comes with room for a flat LiPo (`battery`, 500 mAh by default) and a
 hole for a switch. Print the base open side up and the lid flat side down, without supports.
 
 The STLs are on the [installer page](https://konsumer.github.io/fm1buddy/) and in each release; `tools/cases.sh` makes
@@ -210,6 +254,8 @@ CYD (screen, touch, SD:/fm1)  <-- UART 1 Mbaud -->  Feather RP2040 (USB host)  -
   a CYD on its UART) what's plugged in and what each device sends; it takes MIDI to send, routing and mapping rules.
   The link is in `src/common/fm1link.h`, the mapping in `src/common/fm1map.h`. The first core has the USB drive and the
   OLED screen (`ui.cpp`).
+- `src/pico/` is the ultra-light box: the same `host.cpp`, on the RP2040's own USB port (TinyUSB host), and a USB
+  stick on the hub for `midimap.txt` (`stick.cpp`: SdFat on TinyUSB's mass storage host).
 - `src/cyd/` is the touch screen.
 - `src/common/` is what both screens use. `fm1ota.cpp` is the FM-1's update protocol (M-UPGRADE compatible), ported from foma's
   `web/fm1ota.js`: the FM-1 asks for parts of the package with SysEx read requests, and the CYD answers each one
@@ -217,9 +263,10 @@ CYD (screen, touch, SD:/fm1)  <-- UART 1 Mbaud -->  Feather RP2040 (USB host)  -
   loader (a new USB device, `ota-...`) reads the whole image and writes it.
 
 ```
-platformio.ini       both boards: pio run -e feather, pio run -e cyd
+platformio.ini       the boards: pio run -e feather, pio run -e cyd, pio run -e pico
 src/common/          the link, the mapping, the FM-1 update, the rules file
 src/feather/         the box (host.cpp), its USB drive and screen
+src/pico/            the ultra-light box (RP2040-Zero): its main, the USB stick
 src/cyd/             the touch screen
 lib/Pico-PIO-USB/    Pico-PIO-USB 0.7.2 (MIT), here so PlatformIO doesn't pull a second TinyUSB in with it
 tools/pi-setup.sh    the Raspberry Pi box

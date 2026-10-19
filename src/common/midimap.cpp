@@ -2,6 +2,12 @@
 
 #include "link.h"
 
+#ifdef USE_TINYUSB_HOST
+#define LOG(...)  // no USB serial: the port is the host
+#else
+#define LOG(...) Serial.printf(__VA_ARGS__)
+#endif
+
 MapRule midimap::rules[MAP_RULES];
 int midimap::count;
 
@@ -180,6 +186,16 @@ void midimap::format(const MapRule& r, char* out, size_t n) {
   }
 }
 
+// one line of the file (ln: its line number)
+static void addLine(const char* line, int ln) {
+  const char* why;
+  if (midimap::parse(line, midimap::rules[midimap::count], &why)) {
+    midimap::count++;
+  } else if (why) {
+    LOG(MAP_FILE ":%d: %s\n", ln, why);
+  }
+}
+
 bool midimap::load(fs::FS& fs) {
   count = 0;
   File f = fs.open(MAP_FILE, "r");
@@ -191,16 +207,29 @@ bool midimap::load(fs::FS& fs) {
   while (f.available() && count < MAP_RULES) {
     size_t k = f.readBytesUntil('\n', line, sizeof line - 1);
     line[k] = 0;
-    ln++;
-    const char* why;
-    if (parse(line, rules[count], &why)) {
-      count++;
-    } else if (why) {
-      Serial.printf(MAP_FILE ":%d: %s\n", ln, why);
-    }
+    addLine(line, ++ln);
   }
   f.close();
   return true;
+}
+
+void midimap::loadText(const char* s) {
+  count = 0;
+  char line[128];
+  int ln = 0;
+  while (*s && count < MAP_RULES) {
+    size_t k = 0;
+    for (; *s && *s != '\n'; s++) {
+      if (k < sizeof line - 1) {
+        line[k++] = *s;
+      }
+    }
+    if (*s) {
+      s++;
+    }
+    line[k] = 0;
+    addLine(line, ++ln);
+  }
 }
 
 // the top of the file, so it explains itself

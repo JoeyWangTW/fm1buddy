@@ -147,7 +147,9 @@ extern "C" {
 // #define CFG_TUH_API_EDPT_XFER       1
 
 // Number of mass storage
+#ifndef CFG_TUH_MSC
 #define CFG_TUH_MSC 0
+#endif
 
 // Number of HIDs
 // typical keyboard + mouse device can have 3,4 HID interfaces

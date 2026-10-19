@@ -4,6 +4,7 @@
 const REPO = 'konsumer/fm1buddy'
 const FW = {
   feather: 'fw/fm1buddy-feather.uf2',
+  pico: 'fw/fm1buddy-pico.uf2',
   cyd: 'fw/fm1buddy-cyd.bin',
   manifest: 'fw/manifest.json',
   version: 'fw/version.json'
@@ -14,9 +15,9 @@ const $$ = (s) => [...document.querySelectorAll(s)]
 
 // ---------------------------------------------------------------------------------------------- tabs ---
 function show(tab) {
-  if (!document.getElementById(tab)) {
-    tab = 'box'
-  }
+  const el = tab && document.getElementById(tab)
+  const panel = el && el.closest('.panel') // a heading in a tab: that tab
+  tab = panel ? panel.id : 'box'
   for (const b of $$('.tabs button')) {
     b.setAttribute('aria-selected', b.dataset.tab === tab)
   }
@@ -50,8 +51,8 @@ async function json(url) {
   return r.json()
 }
 
-function noFirmware() {
-  for (const el of $$('.fw-feather, .copy-uf2, .fw-cyd button, .fw-cyd-bin')) {
+function noFirmware(sel = '.fw-feather, .fw-pico, .copy-uf2, .fw-cyd button, .fw-cyd-bin') {
+  for (const el of $$(sel)) {
     el.setAttribute('aria-disabled', 'true')
     el.disabled = true
     el.removeAttribute('href')
@@ -61,9 +62,11 @@ function noFirmware() {
 async function release() {
   const el = $('#release')
   let here = null
+  let pico = false
   try {
     const v = await json(FW.version)
     here = v.tag
+    pico = !!v.pico
     cases(v.cases || [])
   } catch (_) {
     cases([])
@@ -79,6 +82,11 @@ async function release() {
     return
   }
   $('.fw-feather').href = FW.feather
+  if (pico) {
+    $('.fw-pico').href = FW.pico
+  } else {
+    noFirmware('.fw-pico, .copy-uf2[data-fw="pico"]') // releases from before it
+  }
   $('.fw-cyd-bin').href = FW.cyd
   $('.fw-cyd').setAttribute('manifest', FW.manifest)
 
@@ -107,8 +115,10 @@ function cases(files) {
 }
 
 // ----------------------------------------------------------------------- the .uf2 onto the RPI-RP2 drive ---
-async function copyUf2() {
-  const status = $('.copy-status')
+async function copyUf2(button) {
+  const fw = button.dataset.fw
+  const board = fw === 'pico' ? 'board' : 'Feather'
+  const status = button.closest('li').querySelector('.copy-status')
   const say = (msg, bad = false) => {
     status.hidden = false
     status.textContent = msg
@@ -127,28 +137,30 @@ async function copyUf2() {
   try {
     await dir.getFileHandle('INFO_UF2.TXT')
   } catch (_) {
-    say("That isn't the RPI-RP2 drive (it has an INFO_UF2.TXT). Hold BOOT while you plug the Feather in, and pick that drive.", true)
+    say(`That isn't the RPI-RP2 drive (it has an INFO_UF2.TXT). Hold BOOT while you plug the ${board} in, and pick that drive.`, true)
     return
   }
   say('Copying…')
   let wrote = false
   try {
-    const data = await (await fetch(FW.feather)).arrayBuffer()
-    const file = await dir.getFileHandle('fm1buddy-feather.uf2', { create: true })
+    const data = await (await fetch(FW[fw])).arrayBuffer()
+    const file = await dir.getFileHandle(`fm1buddy-${fw}.uf2`, { create: true })
     const w = await file.createWritable()
     await w.write(data)
     wrote = true
     await w.close()
-    say('Done: the Feather restarts with fm1buddy.')
+    say(`Done: the ${board} restarts with fm1buddy.`)
   } catch (e) {
     // the Feather restarts as soon as it has the whole file, and the drive goes away under us
     if (wrote) {
-      say('Done: the Feather restarts with fm1buddy.')
+      say(`Done: the ${board} restarts with fm1buddy.`)
     } else {
       say(`That didn't work (${e.message}): drag the file onto RPI-RP2 instead.`, true)
     }
   }
 }
 
-$('.copy-uf2').addEventListener('click', copyUf2)
+for (const b of $$('.copy-uf2')) {
+  b.addEventListener('click', () => copyUf2(b))
+}
 release()

@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>fm1buddy installer</title>
-    <meta name="description" content="Install fm1buddy on the Feather USB host box and the Cheap Yellow Display, from the browser." />
+    <meta name="description" content="Install fm1buddy on the Feather USB host box, the ultra-light RP2040-Zero box and the Cheap Yellow Display, from the browser." />
     <link rel="stylesheet" href="style.css" />
     <script type="module" src="https://unpkg.com/esp-web-tools@10.4.0/dist/web/install-button.js?module"></script>
   </head>
@@ -22,6 +22,7 @@
         <button role="tab" data-tab="box" aria-selected="true">USB host box</button>
         <button role="tab" data-tab="oled">Box with a screen</button>
         <button role="tab" data-tab="cyd">Touch screen (CYD)</button>
+        <button role="tab" data-tab="lite">Ultra-light</button>
       </nav>
 
       <!-- the Feather on its own -->
@@ -43,7 +44,7 @@
           <li><strong>Hold the Feather's BOOT button</strong> while you plug its USB-C into the computer, then let go. A drive called <code>RPI-RP2</code> appears.</li>
           <li>
             <strong>Copy the file onto <code>RPI-RP2</code>.</strong> Drag it there, or let this page do it (Chrome or Edge): pick the <code>RPI-RP2</code> drive when asked.
-            <div class="actions"><button class="button secondary copy-uf2">Copy it to RPI-RP2</button></div>
+            <div class="actions"><button class="button secondary copy-uf2" data-fw="feather">Copy it to RPI-RP2</button></div>
             <p class="note copy-status" hidden></p>
           </li>
           <li>The drive disappears and the Feather restarts: <strong>it's ready.</strong> (A new drive, <code>fm1buddy</code>, shows up: that's for the firmware switcher.)</li>
@@ -182,10 +183,83 @@ pb -> drop</code></pre>
         </div>
       </section>
 
+      <!-- the RP2040-Zero -->
+      <section id="lite" class="panel" hidden>
+        <p class="what">The smallest, cheapest box: a <a href="https://www.waveshare.com/wiki/RP2040-Zero">Waveshare RP2040-Zero</a>, about the size of a thumbnail, with one USB-C port. A USB-C OTG adapter with a charging port splits that port into the hub and the power. It routes and maps MIDI like the Feather box, with fewer extras: see <a href="#lite-limits">what it can't do</a>.</p>
+        <h2>You need</h2>
+        <ul>
+          <li>a Waveshare RP2040-Zero</li>
+          <li>a <strong>USB-C OTG adapter with a charging port</strong> (USB-C plug; a USB-A socket and a USB-C charging socket) that passes charging and data <em>at the same time</em>. Look for one sold for the <strong>Chromecast with Google TV</strong>: it's the same situation, a device that is the USB host while it's powered through that port. Many 3-port "splitters" can't: they say "does not support charging and data at the same time". <br />Or a hub with a power input made for the Chromecast or Fire TV (USB-C plug, USB-A ports, a charging port): the adapter and the hub in one.</li>
+          <li>a USB hub (any small one: the adapter powers it)</li>
+          <li>a USB-C charger or a power bank</li>
+          <li>a USB-C cable and a computer, for this once</li>
+        </ul>
+        <h2>Install</h2>
+        <ol class="steps">
+          <li>
+            <strong>Get the firmware.</strong>
+            <div class="actions"><a class="button fw-pico" download>Download fm1buddy-pico.uf2</a></div>
+          </li>
+          <li><strong>Hold the board's BOOT button</strong> while you plug it into the computer (straight in, not through the adapter), then let go. A drive called <code>RPI-RP2</code> appears.</li>
+          <li>
+            <strong>Copy the file onto <code>RPI-RP2</code>.</strong> Drag it there, or let this page do it (Chrome or Edge).
+            <div class="actions"><button class="button secondary copy-uf2" data-fw="pico">Copy it to RPI-RP2</button></div>
+            <p class="note copy-status" hidden></p>
+          </li>
+          <li>
+            <strong>Plug in:</strong> the adapter into the board, a hub into the adapter's USB-A, a charger or power bank into its charging port, and the FM-1 and your controllers into the hub. The LED flashes once when it starts, and when MIDI goes through.
+            <pre class="wiring"><code>keyboard ─┐
+          ├─ USB hub ── OTG adapter ── RP2040-Zero
+FM-1 ─────┘                 │
+                charger ────┘ (its charging port)</code></pre>
+          </li>
+        </ol>
+        <h2>A case</h2>
+        <div class="case" data-case="lite">
+          <img src="case/lite.png" alt="The case for the RP2040-Zero" width="450" height="350" loading="lazy" />
+          <div>
+            <p>Print the base open side up and the lid flat side down, without supports (PLA or PETG). The lid snaps on, holds the board down, and is thin enough over it for the LED to shine through. The slot at the far end is for a CYD's wires.</p>
+            <div class="actions case-links"></div>
+          </div>
+        </div>
+        <h2 id="lite-limits">What it can't do</h2>
+        <ul>
+          <li><strong>No USB drive and no screen:</strong> its only USB port is the host. Installing FM-1 firmware needs a <a href="#cyd" data-go="cyd">CYD</a> (wired as below), or plug the FM-1 straight into a computer and use the <a href="https://fm1.designburgapps.com">FM-1 Firmware Hub</a>.</li>
+          <li><strong>MIDI mapping</strong> comes from a USB stick: put <code>midimap.txt</code> on it (FAT32; the rules are as on the <a href="#box" data-go="box">USB host box</a>), and plug it into the hub. The box reads it when the stick goes in and keeps the rules until it's switched off. With a CYD, the CYD's rules win.</li>
+          <li><strong>No battery inside:</strong> a power bank is the battery. Some switch off when little is drawn.</li>
+          <li><strong>MIDI thru</strong> (everything to everything) is always on.</li>
+          <li>To update the box itself, open the lid to reach BOOT.</li>
+        </ul>
+        <h2>With a CYD</h2>
+        <p>Install the CYD as on its <a href="#cyd" data-go="cyd">tab</a>, and wire its <code>CN1</code> to the board's pins:</p>
+        <table>
+          <tr>
+            <th>CYD</th>
+            <th>RP2040-Zero</th>
+          </tr>
+          <tr>
+            <td>CN1 GND</td>
+            <td>GND</td>
+          </tr>
+          <tr>
+            <td>CN1 IO22</td>
+            <td>GP0 (TX)</td>
+          </tr>
+          <tr>
+            <td>CN1 IO27</td>
+            <td>GP1 (RX)</td>
+          </tr>
+          <tr>
+            <td>P1 VIN (optional)</td>
+            <td>5V: powers the CYD from the adapter</td>
+          </tr>
+        </table>
+      </section>
+
       <section class="notes">
         <h2>Good to know</h2>
         <ul>
-          <li>The FM-1 only takes firmware over USB, so installing always goes through the host box.</li>
+          <li>The FM-1 only takes firmware over USB, so installing goes through the host box (or a computer).</li>
           <li><strong>On a battery:</strong> the battery cases fit a flat 500 mAh LiPo (like Adafruit's 1578) under the Feather, and have a hole for a small slide switch in its lead. The Feather charges it from its USB-C, and makes the 5 V for the hub from it (500 mA at most). Roughly: the box and a small controller run an hour or two on 500 mAh; whatever else on the hub draws power (the FM-1, if it charges from it) takes from that.</li>
           <li>Installing firmware is at your own risk. If the FM-1 won't start, hold <strong>OCT-</strong> while switching it on (the USB rescue), and install again.</li>
           <li>If a controller sends back everything it receives ("MIDI thru" or "echo" in its settings), turn that off, or messages go round in circles.</li>

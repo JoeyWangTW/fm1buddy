@@ -25,6 +25,8 @@ extern int count;
 bool parse(const char* line, MapRule& r, const char** why);
 void format(const MapRule& r, char* out, size_t n);
 bool load(fs::FS& fs);
+// the same, from the file's text
+void loadText(const char* text);
 bool save(fs::FS& fs);
 // to the box, for the devices that are on its hub now
 void push();
