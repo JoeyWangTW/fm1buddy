@@ -44,12 +44,16 @@ jobs:
             rm -f site/fw/*
           done
           if [ -n "$tag" ]; then
-            # the ultra-light box's firmware, and the cases' STLs, from releases that have them
+            # the CYD-S3's and the ultra-light box's firmware, and the cases' STLs, from releases that have them
+            gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir site/fw --clobber --pattern fm1buddy-cyd-s3.bin || true
             gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir site/fw --clobber --pattern fm1buddy-pico.uf2 || true
             gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir site/fw --clobber --pattern 'fm1buddy-case-*.stl' || true
-            jq -n --arg tag "$tag" '{tag: $tag, pico: $pico, cases: $ARGS.positional}' --argjson pico "$([ -f site/fw/fm1buddy-pico.uf2 ] && echo true || echo false)" --args $(cd site/fw && ls fm1buddy-case-*.stl 2>/dev/null) > site/fw/version.json
+            has() { [ -f "site/fw/$1" ] && echo true || echo false; }
+            jq -n --arg tag "$tag" '{tag: $tag, pico: $pico, s3: $s3, cases: $ARGS.positional}' --argjson pico "$(has fm1buddy-pico.uf2)" --argjson s3 "$(has fm1buddy-cyd-s3.bin)" --args $(cd site/fw && ls fm1buddy-case-*.stl 2>/dev/null) > site/fw/version.json
             jq -n --arg v "$tag" '{name: "fm1buddy", version: $v, new_install_prompt_erase: true,
               builds: [{chipFamily: "ESP32", parts: [{path: "fm1buddy-cyd.bin", offset: 0}]}]}' > site/fw/manifest.json
+            jq -n --arg v "$tag" '{name: "fm1buddy CYD-S3", version: $v, new_install_prompt_erase: true,
+              builds: [{chipFamily: "ESP32-S3", parts: [{path: "fm1buddy-cyd-s3.bin", offset: 0}]}]}' > site/fw/manifest-s3.json
           else
             rm -f site/fw/*
             echo "no release with firmware yet: the page says so"

@@ -1,9 +1,10 @@
-// The CYD's XPT2046 touch panel, bit-banged: the display and the SD card have the two SPI hosts
-// (after pntr_app_esp32.h)
+// The touch panel. The CYD's XPT2046, bit-banged: the display and the SD card have the two SPI hosts (after
+// pntr_app_esp32.h). On the CYD-S3 (TOUCH_SDA): its FT6336, on I2C.
 #pragma once
 
 #include <Arduino.h>
 
+#ifndef TOUCH_SDA
 #define TOUCH_MOSI 32
 #define TOUCH_MISO 39
 #define TOUCH_SCLK 25
@@ -13,6 +14,7 @@
 #define TOUCH_MAX_X 3700
 #define TOUCH_MIN_Y 240
 #define TOUCH_MAX_Y 3800
+#endif
 
 void touchBegin();
 // true while touched; x, y in screen pixels (320x240, landscape)

@@ -6,17 +6,19 @@
 //            sd_oled  Feather, Adalogger, OLED FeatherWing
 //            cyd      the CYD (ESP32-2432S028R) in front, the Feather behind it
 //            lite     ultra-light: a Waveshare RP2040-Zero, its USB-C the only port (a slot for a CYD's wires)
+//            s3       the CYD-S3 on its own (Freenove FNK0104B, ESP32-S3 2.8"): its USB-C the only port
 //   battery  room for a flat LiPo, and a hole for a small slide switch (not lite: its battery is a power bank)
 //   part     base, lid, or preview (the case open, with stand-ins for the boards)
 //
 // openscad -D 'config="oled"' -D 'part="lid"' -o lid.stl fm1buddy-case.scad (tools/cases.sh makes them all)
 //
 // The board sizes are measured from Adafruit's CAD (Adafruit_CAD_Parts: 5723, 4650, 2922) and the CYD's
-// drawing (ESP32-Cheap-Yellow-Display, Dimensions.png); the RP2040-Zero from Waveshare's (23.5 x 18). Feather coordinates: x along the board from the USB-C end,
-// y across it from the 16-pin header's edge, z up from the board's underside.
+// drawing (ESP32-Cheap-Yellow-Display, Dimensions.png); the RP2040-Zero from Waveshare's (23.5 x 18); the CYD-S3 from
+// LCDwiki's ES3C28P outline drawing (the same board). Feather coordinates: x along the board from the USB-C end, y
+// across it from the 16-pin header's edge, z up from the board's underside.
 
 /* [What] */
-config = "oled";  // [bare, oled, sd, sd_oled, cyd, lite]
+config = "oled";  // [bare, oled, sd, sd_oled, cyd, lite, s3]
 battery = false;
 part = "preview";  // [preview, base, lid]
 section = false;   // preview: cut in half, to see the inside
@@ -64,6 +66,18 @@ CYD_HOLES = [[4, 4], [82, 4], [4, 46], [82, 46]];
 CYD_HOLE_D = 3.2;
 CYD_SCREEN = [62, 47];                                       // the window: active area 57.6 x 43.2, centered
 CYD_FRONT = 4.6;                                             // the display and touch panel, above its board
+
+// the CYD-S3, face up: x from its USB-C end, y from the long edge with the mic (the SD card, BAT and BOOT are on the
+// other). USB-C, BOOT, RESET, the SD socket and the RGB LED are on its back
+S3 = [86, 50];
+S3_HOLES = [[4, 4], [82, 4], [4, 46], [82, 46]];
+S3_FRONT = 4.3;                                              // the display and touch panel, above its board
+S3_BACK = 4.7;                                               // its tallest parts underneath
+S3_WIN = [[16.0, 2.6], [76.0, 47.4]];                        // the window: visible area 58.05 x 43.6 at x 17 .. 75
+S3_USB = [25, 3.2];                                          // its USB-C: y of the middle, height under the board
+S3_BTN = [[3.26, 36.57], [3.26, 13.44]];                     // BOOT, RESET
+S3_SD = 50.97;                                               // the card goes in through the y = 50 edge, here
+S3_LED = [44.6, 17.6];
 
 ZERO = [23.5, 18];                                           // RP2040-Zero: USB-C at x = 0
 ZERO_PCB = 1.0;
@@ -305,9 +319,63 @@ module lite_lid() {
   translate([4, ZERO.y / 2 - 5, -bar]) cube([2, 10, bar + eps]);
 }
 
+// --------------------------------------------------------------------------------------------- CYD-S3 ---
+// the board face up on posts (high enough for a battery under it), its USB-C through the x = 0 wall for the OTG
+// adapter. The box is wider than the board across, so the lid's lip clears the display glass (as wide as the
+// board); posts in the lid hold the board down at its holes. Paperclip holes in the floor reach BOOT and RESET
+s_bz = (battery ? bat.z + 0.7 : 0) + S3_BACK + 0.8;           // the board's underside
+s_inner_h = s_bz + PCB + S3_FRONT + 0.2;
+sc0 = [-gap, -gap - 1.5];
+sc1 = [S3.x + gap, S3.y + gap + 1.5];
+s_bat = [S3.x - 10 - bat.x, S3.y / 2 - bat.y / 2];           // the battery's corner, toward the far end
+
+module s3_base() {
+  usb_z = s_bz - S3_USB.y / 2;
+  difference() {
+    union() {
+      tray(sc0, sc1, s_inner_h);
+      pegs(S3_HOLES, s_bz, 5.4, 2.9, PCB + 0.5);
+    }
+    // the OTG adapter's plug (its body is bigger than the socket)
+    wall_hole(0, [sc0.x - wall / 2, S3_USB.x, usb_z], 13, 7.5, 2);
+    // the SD card, and a notch to push it in with a fingernail
+    wall_hole(1, [S3_SD, sc1.y + wall / 2, s_bz - 1.0], 16, 4, 0.8);
+    translate([S3_SD, sc1.y - 1, s_bz - 1.0]) rotate([-90, 0, 0]) cylinder(d = 9, h = wall + 2);
+    // BOOT and RESET, for a paperclip from underneath
+    for (b = S3_BTN) translate([b.x + 0.4, b.y, -floor_t - 1]) cylinder(d = 2.4, h = floor_t + 2);
+    // (seen from below, so mirrored)
+    for (t = [["BOOT", S3_BTN[0]], ["RST", S3_BTN[1]]]) translate([t[1].x + 2.5, t[1].y, -floor_t - eps]) linear_extrude(0.6) mirror([1, 0, 0]) text(t[0], size = 2, halign = "right", valign = "center", font = "Liberation Sans:style=Bold");
+    // thin under the RGB LED, so it shows through (a battery covers it)
+    if (!battery) translate([S3_LED.x - 4, S3_LED.y - 4, -floor_t + 0.6]) cube([8, 8, floor_t]);
+    if (battery && switch_hole.x > 0) {
+      wall_hole(1, [18, sc1.y + wall / 2, bat.z / 2 + 0.5], switch_hole.x, switch_hole.y, 0.5);
+      wall_label("BATT", [18, sc1.y + wall, bat.z + 3.5], "y1", size = 2.5);
+    }
+    wall_label("HUB+POWER", [sc0.x - wall, S3_USB.x, usb_z + 7], "x0", size = 2.5);
+    wall_label("SD", [S3_SD - 12, sc1.y + wall, s_bz - 1.0], "y1");
+  }
+}
+
+module s3_lid() {
+  down = s_inner_h - s_bz - PCB;  // from the lid's underside to the board
+  difference() {
+    union() {
+      lid_plate(sc0, sc1);
+      for (p = S3_HOLES) translate([p.x, p.y, -down]) cylinder(d = 4.6, h = down + eps);
+    }
+    translate([S3_WIN[0].x, S3_WIN[0].y, -lip_h - 1]) linear_extrude(lip_h + lid_t + 2) offset(1) offset(-1) square(S3_WIN[1] - S3_WIN[0]);
+  }
+}
+
 // ---------------------------------------------------------------------------------------- previews ---
 module stand_ins() {
-  if (config == "lite") {
+  if (config == "s3") {
+    translate([0, 0, s_bz]) color("#222") cube([S3.x, S3.y, PCB]);
+    translate([8.4, 0, s_bz + PCB]) color("#111") cube([69.2, S3.y, S3_FRONT - 0.2]);
+    translate([-0.3, S3_USB.x - 4.5, s_bz - S3_USB.y]) color("#aaa") cube([7.3, 9, S3_USB.y]);
+    translate([S3_SD - 7, S3.y - 15, s_bz - 1.9]) color("#bbb") cube([14, 15, 1.9]);
+    if (battery) translate([s_bat.x, s_bat.y, 0.3]) color("silver") cube(bat);
+  } else if (config == "lite") {
     translate([0, 0, z_so]) color("#222") cube([ZERO.x, ZERO.y, ZERO_PCB]);
     translate([-0.6, ZERO.y / 2 - ZERO_USB.x / 2, z_top]) color("#aaa") cube([7.3, ZERO_USB.x, ZERO_USB.y]);
   } else if (config == "cyd") {
@@ -337,12 +405,20 @@ module stand_ins() {
 module cut() {
   if (section) intersection() {
     children();
-    translate([-200, config == "cyd" ? 25 : config == "lite" ? ZERO.y / 2 : 11.43, -200]) cube(400);
+    translate([-200, config == "cyd" || config == "s3" ? 25 : config == "lite" ? ZERO.y / 2 : 11.43, -200]) cube(400);
   }
   else children();
 }
 
-cut() if (config == "lite") {
+cut() if (config == "s3") {
+  if (part == "base") s3_base();
+  if (part == "lid") translate([0, 0, lid_t]) mirror([0, 0, 1]) s3_lid();
+  if (part == "preview") {
+    color(BASE_COLOR) s3_base();
+    stand_ins();
+    translate([0, 0, s_inner_h + 25]) color(LID_COLOR) s3_lid();
+  }
+} else if (config == "lite") {
   if (part == "base") lite_base();
   if (part == "lid") translate([0, 0, lid_t]) mirror([0, 0, 1]) lite_lid();
   if (part == "preview") {

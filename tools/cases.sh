@@ -10,7 +10,7 @@ out=build/case
 mkdir -p "$out" site/case
 backend=
 openscad --help 2>&1 | grep -q -- --backend && backend=--backend=manifold
-for config in bare oled sd sd_oled cyd lite; do
+for config in s3 bare oled sd sd_oled cyd lite; do
   for battery in false true; do
     [ "$config" = lite ] && [ "$battery" = true ] && continue  # its battery is a power bank
     name=$config

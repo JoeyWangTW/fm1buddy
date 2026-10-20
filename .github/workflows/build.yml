@@ -1,4 +1,4 @@
-# Builds the CYD firmware, the Feather's and the RP2040-Zero's .uf2, and the cases' STLs. Every run keeps them as a "firmware" artifact; tags (v0.2) also
+# Builds the CYD-S3's and the CYD's firmware, the Feather's and the RP2040-Zero's .uf2, and the cases' STLs. Every run keeps them as a "firmware" artifact; tags (v0.2) also
 # get a release with them attached.
 name: build
 on:
@@ -26,12 +26,14 @@ jobs:
             0xe000 ~/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin \
             0x10000 $B/firmware.bin
       - run: |
+          cp .pio/build/cyd-s3/firmware.factory.bin build/fm1buddy-cyd-s3.bin
           cp .pio/build/feather/firmware.uf2 build/fm1buddy-feather.uf2
           cp .pio/build/pico/firmware.uf2 build/fm1buddy-pico.uf2
       - uses: actions/upload-artifact@v4
         with:
           name: firmware
           path: |
+            build/fm1buddy-cyd-s3.bin
             build/fm1buddy-cyd.bin
             build/fm1buddy-feather.uf2
             build/fm1buddy-pico.uf2
@@ -40,6 +42,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         with:
           files: |
+            build/fm1buddy-cyd-s3.bin
             build/fm1buddy-cyd.bin
             build/fm1buddy-feather.uf2
             build/fm1buddy-pico.uf2

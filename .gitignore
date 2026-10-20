@@ -3,3 +3,4 @@
 build/
 site/fw/
 .DS_Store
+src/idf_component.yml*
