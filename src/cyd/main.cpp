@@ -1,11 +1,26 @@
 // fm1buddy: pick a firmware from SD:/fm1 (or the FM-1 Firmware Hub, over Wi-Fi) and install it on the FM-1,
-// through the USB MIDI host box. Bluetooth MIDI devices (ble.h) join the box's devices.
+// through the USB MIDI host box. Bluetooth MIDI devices (ble.h) join the box's devices. On the CYD, the box is
+// another board, on CN1's UART; on the CYD-S3 (CYD_S3) it is this one (s3box.h), its USB-C port the host.
 #include <Arduino.h>
 #include <Preferences.h>
-#include <SD.h>
 #include <SPI.h>
 #include <TFT_eSPI.h>
 #include <WiFi.h>
+#ifdef CYD_S3
+#include <SD_MMC.h>
+#define SD SD_MMC
+#include "s3box.h"
+#define NO_BOX "USB host didn't start"
+#define HEAD_NO_BOX "no USB host"
+#define ON_HUB "Plug the FM-1 into the hub."
+#define EMPTY_HUB "Nothing on the hub"
+#else
+#include <SD.h>
+#define NO_BOX "Host box not connected (CN1)"
+#define HEAD_NO_BOX "no host box"
+#define ON_HUB "Plug the FM-1 into the host box's hub."
+#define EMPTY_HUB "Nothing plugged into the host box"
+#endif
 
 #include "ble.h"
 #include "fm1ota.h"
@@ -33,7 +48,9 @@
 #define C_BAD 0xF800
 
 static TFT_eSPI tft;
+#ifndef CYD_S3
 static SPIClass sdSpi(VSPI);
+#endif
 static bool sdOk;
 
 static struct {
@@ -123,7 +140,7 @@ static void header(bool force = false) {
   char s[48];
   int d = fm1::current();
   if (!hub.box) {
-    strlcpy(s, "no host box", sizeof s);
+    strlcpy(s, HEAD_NO_BOX, sizeof s);
   } else if (d < 0) {
     strlcpy(s, "no FM-1", sizeof s);
   } else {
@@ -180,7 +197,7 @@ static void drawConfirm() {
   const char* label = "INSTALL";
   bool can = d >= 0;
   if (d < 0) {
-    text("Plug the FM-1 into the host box's hub.", 8, HEAD + 120, 2, C_DIM);
+    text(ON_HUB, 8, HEAD + 120, 2, C_DIM);
   } else if (fm1::known(d)->ota()) {
     label = "FINISH";
     text("The FM-1 is in update mode: FINISH", 8, HEAD + 120, 2, C_FG);
@@ -222,9 +239,9 @@ static void drawDevices() {
     y += DEV_ROW;
   }
   if (!hub.box) {
-    text("Host box not connected (CN1)", W / 2, 100, 2, C_BAD, MC_DATUM);
+    text(NO_BOX, W / 2, 100, 2, C_BAD, MC_DATUM);
   } else if (y == HEAD + 2) {
-    text("Nothing plugged into the host box", W / 2, 100, 2, C_DIM, MC_DATUM);
+    text(EMPTY_HUB, W / 2, 100, 2, C_DIM, MC_DATUM);
   }
   button(0, 88, thru ? "THRU: ON" : "THRU: OFF", thru ? C_OK : C_DIM);
   button(88, 88, "BLUETOOTH", ble::isOn() ? C_ACCENT : C_DIM);
@@ -1006,6 +1023,13 @@ static void console() {
   }
 }
 
+#ifdef CYD_S3
+// the link to the box: in this board (s3box.h)
+static void boxPump() {
+  s3box::pump();
+  ble::pump();  // Bluetooth MIDI in and out, as often
+}
+#else
 // the link to the box: its UART, on CN1
 static link_rx_t uartRx;
 
@@ -1023,6 +1047,7 @@ static void uartPump() {
   }
   ble::pump();  // Bluetooth MIDI in and out, as often as the UART
 }
+#endif
 
 void setup() {
   Serial.begin(460800);
@@ -1034,13 +1059,23 @@ void setup() {
   thru = prefs.getBool("thru", true);
   strlcpy(ssid, prefs.getString("ssid", "").c_str(), sizeof ssid);
   strlcpy(pass, prefs.getString("pass", "").c_str(), sizeof pass);
+#ifdef CYD_S3
+  hub.begin(s3box::send, boxPump);
+  s3box::begin();
+#else
   Serial2.setRxBufferSize(4096);
   Serial2.begin(LINK_BAUD, SERIAL_8N1, LINK_RX, LINK_TX);
   hub.begin(uartSend, uartPump);
+#endif
   hub.own(ble::send);
   ble::begin(prefs.getBool("bt", true));
+#ifdef CYD_S3
+  SD_MMC.setPins(SD_CLK, SD_CMD, SD_D0, SD_D1, SD_D2, SD_D3);
+  sdOk = SD_MMC.begin("/sdcard", false);
+#else
   sdSpi.begin(18, 19, 23, 5);
   sdOk = SD.begin(5, sdSpi, 20000000);
+#endif
   if (sdOk) {
     scan();
     if (!SD.exists(MAP_FILE)) {

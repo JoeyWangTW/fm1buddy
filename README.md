@@ -7,10 +7,13 @@ Hardware helpers for the M-VAVE FM-1:
   installed on the FM-1, no computer. It also edits **MIDI mapping** on the box: "when CC 10 comes in from the
   controller, send CC 5 on channel 2".
 
-The switcher is either a 128x64 OLED and buttons on the box itself (one board, a little soldering), or a "Cheap Yellow
-Display" touch screen (ESP32-2432S028R) wired to the box with three wires. The box works on its own too.
+**The simplest and cheapest: the [CYD-S3](#the-cyd-s3-all-in-one).** One ready-made board, a Freenove ESP32-S3 2.8"
+touch screen, is the box and the switcher in one: no soldering, no wires.
 
-With a CYD, **Bluetooth MIDI** joins in: a phone, tablet or computer can connect to the CYD, and the CYD connects to
+Otherwise the switcher is either a 128x64 OLED and buttons on the box itself (one board, a little soldering), or a
+"Cheap Yellow Display" touch screen (ESP32-2432S028R) wired to the box with three wires. The box works on its own too.
+
+With a CYD (either kind), **Bluetooth MIDI** joins in: a phone, tablet or computer can connect to the CYD, and the CYD connects to
 Bluetooth MIDI keyboards and synths. They play and hear the devices on the hub as if they were plugged into it.
 
 **Install it from the browser:** <https://konsumer.github.io/fm1buddy/>: step by step, for each board, with the latest
@@ -25,9 +28,55 @@ edits the FM-1, the FM-1's CC OUT reaches the controller's lights, and a USB syn
 tracks. There's nothing to set up: no routing, no commands.
 
 Installing firmware needs the box too: the FM-1 only takes updates over USB (its TRS MIDI port can't do it), and the
-CYD can't be a USB host.
+original CYD (a plain ESP32) can't be a USB host. The CYD-S3 can: its ESP32-S3 has USB OTG.
 
-Three ways to build one, all from ready-made parts and with no soldering:
+## The CYD-S3: all in one
+
+A [Freenove ESP32-S3 Display, 2.8", with touch](https://github.com/Freenove/Freenove_ESP32_S3_Display) (FNK0104B; the
+same board as LCDwiki's ES3C28P): an ILI9341 240x320 screen, capacitive touch, a microSD slot, and an ESP32-S3 whose
+USB-C port is the USB host. It does everything [the CYD](#the-firmware-switcher-on-a-touch-screen-the-cyd) does with
+a box (installing firmware, from its SD card or the Firmware Hub; MIDI mapping; Bluetooth MIDI), and is the box.
+
+A **USB-C OTG adapter with a charging port** splits its port into the hub and the power, as for the
+[ultra-light box](#c-ultra-light-waveshare-rp2040-zero) (the same advice about which adapters work: look for one sold
+for the Chromecast with Google TV).
+
+1. Hold the board's **BOOT** button (on its back, next to the USB-C) while you plug it into a computer, straight in.
+2. Install it from the [installer page](https://konsumer.github.io/fm1buddy/) (Chrome or Edge), or flash
+   `fm1buddy-cyd-s3.bin` from a release (bootloader and all, at 0):
+   `esptool.py --chip esp32s3 write_flash 0x0 fm1buddy-cyd-s3.bin`, or build it: `pio run -e cyd-s3 -t upload`.
+   When it's done it restarts as a USB host, and the computer loses it.
+3. Put a FAT32 microSD card in (firmwares go in its `fm1` folder, as on [the CYD](#the-sd-card)).
+4. Plug in the adapter, a hub into its USB-A socket, a charger or power bank into its charging socket, and the FM-1
+   and a controller into the hub. The RGB LED on its back flashes once when it starts, and when MIDI passes through.
+
+   ```
+   keyboard ─┐
+             ├─ USB hub ── OTG adapter ── CYD-S3
+   FM-1 ─────┘                 │
+                   charger ────┘ (its charging port)
+   ```
+
+Using it is [as on the CYD](#using-it).
+
+What it can't do:
+
+- **Two devices on the hub:** the FM-1 and one controller. The S3's USB host has 8 channels: the hub takes 2, and
+  each device 3 (its control endpoint, MIDI in, MIDI out), so a third device is left out (the serial console says
+  so). For more, use the Feather box.
+- **The hub needs the charger:** the board can't power its own USB-C port (its 5 V only comes in, through a diode),
+  so the hub and what's on it are powered from the adapter's charging port. A LiPo on its `BAT` socket keeps the
+  screen and Bluetooth MIDI going without the charger, not the hub.
+- **Its USB-C port is the host**, so updating it means holding BOOT while plugging it into the computer. The serial
+  console (and `tools/cyd.py`) is on its `UART` socket, at 460800 baud, through a USB serial adapter.
+- It is the box, so it doesn't wire to another one (the CYD's CN1).
+
+Its case is `s3` (and `s3-battery`, with room for a flat 500 mAh LiPo under the board and a hole for a switch in its
+lead): [Cases](#cases).
+
+## Other boxes
+
+Three ways to build a separate box, all from ready-made parts and with no soldering:
 
 |                      | A: Feather (recommended)                             | B: Raspberry Pi                                                                                         | C: ultra-light                                                               |
 | -------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
@@ -256,14 +305,15 @@ If the colors look inverted, your CYD is the two-USB-port revision: uncomment `T
 
 ## Cases
 
-`case/fm1buddy-case.scad` (OpenSCAD) is a snap-fit case for each setup: `bare` (the box), `oled` (with the OLED
+`case/fm1buddy-case.scad` (OpenSCAD) is a snap-fit case for each setup: `s3` (the CYD-S3: the board on posts, its
+USB-C out one end, the SD card at the side, paperclip holes in the bottom for BOOT and RESET), `bare` (the box), `oled` (with the OLED
 FeatherWing; tabs in the lid press its buttons), `sd` and `sd_oled` (with an Adalogger FeatherWing), `cyd` (the
 CYD in front, the Feather behind it), and `lite` (the RP2040-Zero: one USB-C hole, a slot for a CYD's wires, and a lid
-thin enough for its LED to shine through). Each Feather case also comes with room for a flat LiPo (`battery`, 500 mAh by default) and a
-hole for a switch. Print the base open side up and the lid flat side down, without supports.
+thin enough for its LED to shine through). Each Feather case, and the CYD-S3's, also comes with room for a flat LiPo (`battery`, 500 mAh by default)
+and a hole for a switch. Print the base open side up and the lid flat side down, without supports.
 
 The STLs are on the [installer page](https://konsumer.github.io/fm1buddy/) and in each release; `tools/cases.sh` makes
-them (with OpenSCAD 2025 or later, or its Docker image). The board sizes come from Adafruit's CAD and the CYD's drawing;
+them (with OpenSCAD 2025 or later, or its Docker image). The board sizes come from Adafruit's CAD, the CYD's drawing and LCDwiki's ES3C28P outline drawing (the CYD-S3);
 how far apart the stacked boards are depends on your headers: measure, and set `wing_gap` if yours differ.
 
 ## How it works
@@ -271,6 +321,8 @@ how far apart the stacked boards are depends on your headers: measure, and set `
 ```
 CYD (screen, touch, SD:/fm1)  <-- UART 1 Mbaud -->  Feather RP2040 (USB host)  -->  hub  -->  FM-1, controllers
                                                     (OLED, buttons, USB drive)
+
+CYD-S3: screen, touch, SD:/fm1  <-- queues -->  box task (ESP-IDF USB host)  -->  OTG adapter  -->  hub  -->  ...
 ```
 
 - `src/feather/` is the box: TinyUSB on Pico-PIO-USB, on the RP2040's second core (`host.cpp`). It routes every
@@ -278,6 +330,11 @@ CYD (screen, touch, SD:/fm1)  <-- UART 1 Mbaud -->  Feather RP2040 (USB host)  -
   a CYD on its UART) what's plugged in and what each device sends; it takes MIDI to send, routing and mapping rules.
   The link is in `src/common/fm1link.h`, the mapping in `src/common/fm1map.h`. The first core has the USB drive and the
   OLED screen (`ui.cpp`).
+- `src/common/box.cpp` is the box's routing and mapping, the same on every board; each board has the USB host under
+  it, and carries its link frames.
+- `src/s3/` is the CYD-S3's box: the ESP-IDF USB host (with its hub driver) and a small USB MIDI driver (it claims each
+  device's MIDI Streaming interface, and reads and writes its endpoints), running `box.cpp` in a FreeRTOS task. The
+  screen is `src/cyd/` (built with `CYD_S3`: SD_MMC, the FT6336 touch panel), its link to the box two queues.
 - `src/pico/` is the ultra-light box: the same `host.cpp`, on the RP2040's own USB port (TinyUSB host), and a USB
   stick on the hub for `midimap.txt` (`stick.cpp`: SdFat on TinyUSB's mass storage host).
 - `src/cyd/` is the touch screen. `ble.cpp` is Bluetooth MIDI ([NimBLE](https://github.com/h2zero/NimBLE-Arduino),
@@ -291,11 +348,12 @@ CYD (screen, touch, SD:/fm1)  <-- UART 1 Mbaud -->  Feather RP2040 (USB host)  -
   loader (a new USB device, `ota-...`) reads the whole image and writes it.
 
 ```
-platformio.ini       the boards: pio run -e feather, pio run -e cyd, pio run -e pico
-src/common/          the link, the mapping, the FM-1 update, the rules file
+platformio.ini       the boards: pio run -e cyd-s3, pio run -e feather, pio run -e cyd, pio run -e pico
+src/common/          the box's routing, the link, the mapping, the FM-1 update, the rules file
+src/s3/              the CYD-S3's USB host
 src/feather/         the box (host.cpp), its USB drive and screen
 src/pico/            the ultra-light box (RP2040-Zero): its main, the USB stick
-src/cyd/             the touch screen
+src/cyd/             the touch screen (the CYD and the CYD-S3)
 lib/Pico-PIO-USB/    Pico-PIO-USB 0.7.2 (MIT), here so PlatformIO doesn't pull a second TinyUSB in with it
 tools/pi-setup.sh    the Raspberry Pi box
 case/                the 3D-printed cases (OpenSCAD)

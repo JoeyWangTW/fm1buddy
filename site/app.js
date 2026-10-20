@@ -6,7 +6,9 @@ const FW = {
   feather: 'fw/fm1buddy-feather.uf2',
   pico: 'fw/fm1buddy-pico.uf2',
   cyd: 'fw/fm1buddy-cyd.bin',
+  s3: 'fw/fm1buddy-cyd-s3.bin',
   manifest: 'fw/manifest.json',
+  manifestS3: 'fw/manifest-s3.json',
   version: 'fw/version.json'
 }
 
@@ -17,7 +19,7 @@ const $$ = (s) => [...document.querySelectorAll(s)]
 function show(tab) {
   const el = tab && document.getElementById(tab)
   const panel = el && el.closest('.panel') // a heading in a tab: that tab
-  tab = panel ? panel.id : 'box'
+  tab = panel ? panel.id : 's3'
   for (const b of $$('.tabs button')) {
     b.setAttribute('aria-selected', b.dataset.tab === tab)
   }
@@ -51,7 +53,7 @@ async function json(url) {
   return r.json()
 }
 
-function noFirmware(sel = '.fw-feather, .fw-pico, .copy-uf2, .fw-cyd button, .fw-cyd-bin') {
+function noFirmware(sel = '.fw-feather, .fw-pico, .copy-uf2, .fw-cyd button, .fw-cyd-bin, .fw-s3 button, .fw-s3-bin') {
   for (const el of $$(sel)) {
     el.setAttribute('aria-disabled', 'true')
     el.disabled = true
@@ -63,10 +65,12 @@ async function release() {
   const el = $('#release')
   let here = null
   let pico = false
+  let s3 = false
   try {
     const v = await json(FW.version)
     here = v.tag
     pico = !!v.pico
+    s3 = !!v.s3
     cases(v.cases || [])
   } catch (_) {
     cases([])
@@ -89,6 +93,12 @@ async function release() {
   }
   $('.fw-cyd-bin').href = FW.cyd
   $('.fw-cyd').setAttribute('manifest', FW.manifest)
+  if (s3) {
+    $('.fw-s3-bin').href = FW.s3
+    $('.fw-s3').setAttribute('manifest', FW.manifestS3)
+  } else {
+    noFirmware('.fw-s3 button, .fw-s3-bin') // releases from before it
+  }
 
   const date = latest && latest.tag_name === here ? ` · ${new Date(latest.published_at).toLocaleDateString()}` : ''
   const url = `https://github.com/${REPO}/releases/tag/${encodeURIComponent(here)}`

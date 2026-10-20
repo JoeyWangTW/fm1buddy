@@ -1,5 +1,40 @@
 #include "touch.h"
 
+#ifdef TOUCH_SDA
+#include <Wire.h>
+
+#define FT6336 0x38
+
+void touchBegin() {
+  pinMode(TOUCH_INT, INPUT);
+  pinMode(TOUCH_RST, OUTPUT);
+  digitalWrite(TOUCH_RST, 0);
+  delay(10);
+  digitalWrite(TOUCH_RST, 1);
+  delay(300);  // it starts
+  Wire.begin(TOUCH_SDA, TOUCH_SCL, 400000);
+}
+
+bool touchRead(int& x, int& y) {
+  uint8_t r[5];  // TD_STATUS, then the first point: XH XL YH YL
+  Wire.beginTransmission(FT6336);
+  Wire.write(0x02);
+  if (Wire.endTransmission(false) || Wire.requestFrom(FT6336, 5) != 5) {
+    return false;
+  }
+  for (uint8_t& b : r) {
+    b = Wire.read();
+  }
+  if ((r[0] & 0x0F) == 0 || (r[0] & 0x0F) > 2) {
+    return false;
+  }
+  int px = (r[1] & 0x0F) << 8 | r[2], py = (r[3] & 0x0F) << 8 | r[4];
+  // the panel is portrait (240x320): turned as the screen is (rotation 1)
+  x = py;
+  y = 239 - px;
+  return x >= 0 && x < 320 && y >= 0 && y < 240;
+}
+#else
 static int clock1() {
   digitalWrite(TOUCH_SCLK, 1);
   delayMicroseconds(1);
@@ -51,6 +86,7 @@ bool touchRead(int& x, int& y) {
   y = (rx - TOUCH_MIN_X) * 240 / (TOUCH_MAX_X - TOUCH_MIN_X);
   return x >= 0 && x < 320 && y >= 0 && y < 240;
 }
+#endif
 
 bool touchTap(int& x, int& y, bool* repeat) {
   static bool down;

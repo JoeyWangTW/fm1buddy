@@ -379,7 +379,7 @@ static const char* installSteps(Pkg& pkg, Fm1Progress cb) {
   Fm1Id id;
   int d = fm1::find(false, id);
   if (d < 0) {
-    return "FM-1 not found: is it plugged into the host box?";
+    return "FM-1 not found: is it plugged into the hub?";
   }
   if (!pkg.fits(id)) {
     snprintf(err, sizeof err, "The device is %s, the package is for %s.", id.text, pkg.product);
