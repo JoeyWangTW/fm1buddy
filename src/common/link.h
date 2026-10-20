@@ -20,11 +20,14 @@ struct LinkDev {
 typedef void (*LinkSend)(uint8_t type, uint8_t d, const uint8_t* p, uint32_t n);
 // hands what came from the box to hub.frame()
 typedef void (*LinkPump)();
+// MIDI the box sends to one of our own devices (LINK_USB and up)
+typedef void (*LinkOwn)(uint8_t d, const uint8_t* p, uint32_t n);
 
 class Link {
  public:
   LinkDev dev[LINK_DEVS];
-  bool box;  // the box answered
+  bool box;         // the box answered
+  uint8_t version;  // its LINK_VERSION
   uint32_t mounts;
   bool changed;  // a device came or went (or the box started): set here, cleared by whoever cares
   // the newest channel message from any device (for learning a mapping): seq goes up with each
@@ -37,6 +40,11 @@ class Link {
   void route(const uint8_t r[LINK_DEVS]);
   void routeAll(bool on);
   void map(const uint8_t* rules, uint32_t n);
+  // our own devices (the CYD's Bluetooth): d is LINK_USB..LINK_DEVS-1. What the box sends them goes to fn
+  void own(LinkOwn fn);
+  void mount(uint8_t d, const char* name);
+  void umount(uint8_t d);
+  void play(uint8_t d, const uint8_t* p, uint32_t n);  // MIDI it sent
   // a frame as if from the box (also the console's way of faking one)
   void frame(uint8_t type, uint8_t d, const uint8_t* p, uint32_t n);
   // the next complete SysEx (F0..F7) from device d, or 0
@@ -46,6 +54,8 @@ class Link {
  private:
   LinkSend sendFn;
   LinkPump pumpFn;
+  LinkOwn ownFn;
+  char ownName[LINK_DEVS - LINK_USB][32];  // "": not there
   uint32_t helloAt;
   uint8_t sx[LINK_DEVS][SYSEX_MAX];
   uint32_t sxn[LINK_DEVS];

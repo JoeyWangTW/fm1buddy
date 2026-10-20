@@ -1,5 +1,5 @@
 // fm1buddy: pick a firmware from SD:/fm1 (or the FM-1 Firmware Hub, over Wi-Fi) and install it on the FM-1,
-// through the USB MIDI host box
+// through the USB MIDI host box. Bluetooth MIDI devices (ble.h) join the box's devices.
 #include <Arduino.h>
 #include <Preferences.h>
 #include <SD.h>
@@ -7,6 +7,7 @@
 #include <TFT_eSPI.h>
 #include <WiFi.h>
 
+#include "ble.h"
 #include "fm1ota.h"
 #include "fwhub.h"
 #include "link.h"
@@ -52,6 +53,7 @@ enum Page { FILES,
             GET,      // downloading it
             WIFI,     // the networks
             KEYS,     // typing a password
+            BT,       // Bluetooth MIDI
             MSG };
 static Page page;
 static bool thru = true;  // MIDI between the devices on the hub (saved)
@@ -195,30 +197,82 @@ static void drawConfirm() {
   button(160, 160, label, can ? C_OK : C_BAR);
 }
 
+#define DEV_ROW 22  // all LINK_DEVS of them fit
+
 static void drawDevices() {
   body();
-  int y = HEAD + 6;
+  int y = HEAD + 2;
   for (int d = 0; d < LINK_DEVS; d++) {
     if (!hub.dev[d].on) {
       continue;
     }
     char s[24];
+    const char* what = s;
+    uint16_t c = C_DIM;
     snprintf(s, sizeof s, "%04X:%04X", hub.dev[d].vid, hub.dev[d].pid);
-    text(hub.dev[d].name[0] ? hub.dev[d].name : "(no name)", 8, y + 10, 2, C_FG, ML_DATUM, 190);
-    text(s, W - 8, y + 10, 2, C_DIM, MR_DATUM);
     if (fm1::known(d)) {
-      text(fm1::known(d)->text, 8, y + 28, 2, C_OK);
+      what = fm1::known(d)->text;
+      c = C_OK;
+    } else if (d >= LINK_USB) {
+      what = "Bluetooth";
+      c = C_ACCENT;
     }
-    y += 42;
+    text(hub.dev[d].name[0] ? hub.dev[d].name : "(no name)", 8, y + DEV_ROW / 2, 2, C_FG, ML_DATUM, 180);
+    text(what, W - 8, y + DEV_ROW / 2, 2, c, MR_DATUM, 124);
+    y += DEV_ROW;
   }
   if (!hub.box) {
     text("Host box not connected (CN1)", W / 2, 100, 2, C_BAD, MC_DATUM);
-  } else if (y == HEAD + 6) {
+  } else if (y == HEAD + 2) {
     text("Nothing plugged into the host box", W / 2, 100, 2, C_DIM, MC_DATUM);
   }
-  button(0, 120, thru ? "MIDI THRU: ON" : "MIDI THRU: OFF", thru ? C_OK : C_DIM);
-  button(120, 100, "MAP", C_DIM);
-  button(220, 100, "FILES", C_ACCENT);
+  button(0, 88, thru ? "THRU: ON" : "THRU: OFF", thru ? C_OK : C_DIM);
+  button(88, 88, "BLUETOOTH", ble::isOn() ? C_ACCENT : C_DIM);
+  button(176, 72, "MAP", C_DIM);
+  button(248, 72, "FILES", C_ACCENT);
+}
+
+// ------------------------------------------------------------------------------------------ Bluetooth ---
+// the first row is a phone or computer connecting to us; then the keyboards and synths (shown[] maps rows)
+static int shown[BLE_PEERS], nShown;
+
+static void drawBt() {
+  body();
+  int y = HEAD;
+  const char* host = !ble::isOn() ? "off" : ble::host() ? "connected"
+                                                        : "visible as " BLE_NAME;
+  text("Phone or computer", 8, y + ROW / 2, 2, C_FG);
+  text(host, W - 8, y + ROW / 2, 2, !ble::isOn() ? C_DIM : ble::host() ? C_OK
+                                                                       : C_ACCENT,
+       MR_DATUM);
+  tft.drawFastHLine(0, y + ROW - 1, W, C_DIM);
+  nShown = 0;
+  for (int i = 0; i < ble::count && nShown < ROWS - 1; i++) {
+    if (!ble::shown(i)) {
+      continue;
+    }
+    shown[nShown++] = i;
+    y += ROW;
+    const BlePeer& p = ble::peers[i];
+    BleState st = ble::state(i);
+    const char* s = st == BLE_ON ? "connected" : st == BLE_CONNECTING ? "connecting"
+                                             : p.saved                ? "saved"
+                                                                      : "tap to connect";
+    text(p.name, 8, y + ROW / 2, 2, p.saved ? C_FG : C_DIM, ML_DATUM, 190);
+    text(s, W - 8, y + ROW / 2, 2, st == BLE_ON ? C_OK : st == BLE_CONNECTING ? C_ACCENT
+                                                                              : C_DIM,
+         MR_DATUM);
+    tft.drawFastHLine(0, y + ROW - 1, W, C_BAR);
+  }
+  if (hub.box && hub.version < 2) {
+    wrap("Update the host box's firmware: this one doesn't know Bluetooth devices.", HEAD + ROW + 30);
+  } else if (!ble::isOn()) {
+    text("Bluetooth is off", W / 2, HEAD + ROW + 50, 2, C_DIM, MC_DATUM);
+  } else if (!nShown) {
+    text("Looking for Bluetooth MIDI devices...", W / 2, HEAD + ROW + 50, 2, C_DIM, MC_DATUM);
+  }
+  button(0, 160, ble::isOn() ? "BLUETOOTH: ON" : "BLUETOOTH: OFF", ble::isOn() ? C_OK : C_DIM);
+  button(160, 160, "BACK", C_ACCENT);
 }
 
 // --------------------------------------------------------------------------------------------- mapping ---
@@ -300,6 +354,7 @@ static void show(Page p) {
   if (p == FILES || p == CONFIRM) {
     WiFi.mode(WIFI_OFF);
   }
+  ble::search(p == BT);
   page = p;
   if (p == CATALOG) {
     drawCatalog();
@@ -319,6 +374,8 @@ static void show(Page p) {
     drawMap();
   } else if (p == RULE) {
     drawRule();
+  } else if (p == BT) {
+    drawBt();
   }
 }
 
@@ -710,12 +767,14 @@ static void tap(int x, int y, bool repeat = false) {
   } else if (page == RUN && foot) {
     show(FILES);
   } else if (page == DEVICES && foot) {
-    if (x < 120) {
+    if (x < 88) {
       thru = !thru;
       prefs.putBool("thru", thru);
       hub.routeAll(thru);
       show(DEVICES);
-    } else if (x < 220) {
+    } else if (x < 176) {
+      show(BT);
+    } else if (x < 248) {
       show(MAP);
     } else {
       show(FILES);
@@ -835,6 +894,22 @@ static void tap(int x, int y, bool repeat = false) {
         drawTyped();
       }
     }
+  } else if (page == BT) {
+    if (foot) {
+      if (x < 160) {
+        ble::setOn(!ble::isOn());
+        prefs.putBool("bt", ble::isOn());
+        drawBt();
+      } else {
+        show(DEVICES);
+      }
+    } else if (y >= HEAD + ROW) {
+      int r = (y - HEAD - ROW) / ROW;
+      if (r < nShown) {
+        ble::toggle(shown[r]);
+        drawBt();
+      }
+    }
   } else if (page == MSG && foot) {
     if (msgBack == WIFI) {
       wifiScan();
@@ -922,6 +997,8 @@ static void console() {
       strlcpy(ssid, line + 5, sizeof ssid);
       saveWifi();
       Serial.printf("wifi %s\n", ssid);
+    } else if (!strcmp(line, "bt")) {
+      ble::status(Serial);
     } else if (sscanf(line, "tap %d %d", &x, &y) == 2) {
       Serial.printf("tap %d %d\n", x, y);
       tap(x, y);
@@ -944,6 +1021,7 @@ static void uartPump() {
       hub.frame(uartRx.type, uartRx.dev, uartRx.payload, uartRx.n);
     }
   }
+  ble::pump();  // Bluetooth MIDI in and out, as often as the UART
 }
 
 void setup() {
@@ -959,6 +1037,8 @@ void setup() {
   Serial2.setRxBufferSize(4096);
   Serial2.begin(LINK_BAUD, SERIAL_8N1, LINK_RX, LINK_TX);
   hub.begin(uartSend, uartPump);
+  hub.own(ble::send);
+  ble::begin(prefs.getBool("bt", true));
   sdSpi.begin(18, 19, 23, 5);
   sdOk = SD.begin(5, sdSpi, 20000000);
   if (sdOk) {
@@ -989,6 +1069,10 @@ void setup() {
 void loop() {
   static bool box;
   hub.poll();
+  ble::loop();
+  if (ble::changed() && page == BT) {
+    drawBt();
+  }
   if (hub.box != box) {
     box = hub.box;
     hub.routeAll(thru);

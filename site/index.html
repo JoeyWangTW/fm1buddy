@@ -122,7 +122,7 @@ pb -> drop</code></pre>
 
       <!-- the CYD -->
       <section id="cyd" class="panel" hidden>
-        <p class="what">An ESP32-2432S028R "Cheap Yellow Display" touch screen, wired to the USB host box: it gets FM-1 firmwares from the <a href="https://thefirmwarehub.com">FM-1 Firmware Hub</a> over Wi-Fi (or from its SD card), installs them, and edits the MIDI mapping.</p>
+        <p class="what">An ESP32-2432S028R "Cheap Yellow Display" touch screen, wired to the USB host box: it gets FM-1 firmwares from the <a href="https://thefirmwarehub.com">FM-1 Firmware Hub</a> over Wi-Fi (or from its SD card), installs them, and edits the MIDI mapping. It also brings in Bluetooth MIDI: phones, tablets, computers, and wireless keyboards and synths play along with what's on the hub.</p>
         <h2>You need</h2>
         <ul>
           <li>the <a href="#box" data-go="box">USB host box</a>, installed</li>
@@ -173,6 +173,7 @@ pb -> drop</code></pre>
           </li>
           <li><strong>Turn them on.</strong> The top right of the CYD shows the FM-1 on the hub: tap a package, then <em>INSTALL</em>. <em>DEVICES</em> → <em>MAP</em> is the MIDI mapping.</li>
           <li><strong>New firmwares, without a computer:</strong> tap <em>ONLINE</em>. The first time, pick your Wi-Fi and type its password (or put a <code>wifi.txt</code> on the card: the network's name on the first line, its password on the second). It lists the Firmware Hub's packages for the FM-1 on the hub; tap one, <em>DOWNLOAD</em>, then <em>INSTALL</em>. Each download is checked (its size, sha256 and identity) before it's kept.</li>
+          <li><strong>Bluetooth MIDI:</strong> connect a phone, tablet or computer to <em>fm1buddy</em>, or tap <em>DEVICES</em> → <em>BLUETOOTH</em> and tap a wireless keyboard or synth to connect it (it's remembered). They become devices on the box, for MIDI thru and the mapping. Update the Feather too: older box firmware doesn't know them.</li>
         </ol>
         <h2>A case</h2>
         <div class="case" data-case="cyd">

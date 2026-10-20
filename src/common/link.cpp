@@ -25,10 +25,17 @@ void Link::frame(uint8_t type, uint8_t d, const uint8_t* p, uint32_t n) {
   if (type == LINK_HELLO) {
     // the box (re)started, or answered ours: either way, MOUNTs for what is plugged in follow
     box = true;
+    version = n ? p[0] : 0;
     changed = true;
     for (uint8_t i = 0; i < LINK_DEVS; i++) {
       dev[i].on = false;
       drain(i);
+    }
+    // the box forgot ours
+    for (uint8_t i = LINK_USB; i < LINK_DEVS; i++) {
+      if (ownName[i - LINK_USB][0]) {
+        mount(i, ownName[i - LINK_USB]);
+      }
     }
     return;
   }
@@ -59,6 +66,42 @@ void Link::frame(uint8_t type, uint8_t d, const uint8_t* p, uint32_t n) {
     for (uint32_t i = 0; i < n; i++) {
       midi(d, p[i]);
     }
+  } else if (type == LINK_SEND && d >= LINK_USB && ownFn && ownName[d - LINK_USB][0]) {
+    ownFn(d, p, n);
+  }
+}
+
+void Link::own(LinkOwn fn) {
+  ownFn = fn;
+}
+
+void Link::mount(uint8_t d, const char* name) {
+  if (d < LINK_USB || d >= LINK_DEVS) {
+    return;
+  }
+  char* own = ownName[d - LINK_USB];
+  strlcpy(own, name[0] ? name : "?", sizeof ownName[0]);
+  uint8_t p[4 + sizeof ownName[0]] = {0};
+  uint32_t k = 4;
+  for (const char* c = own; *c; c++) {
+    p[k++] = (uint8_t)*c;
+  }
+  out(LINK_MOUNT, d, p, k);
+}
+
+void Link::umount(uint8_t d) {
+  if (d >= LINK_USB && d < LINK_DEVS && ownName[d - LINK_USB][0]) {
+    ownName[d - LINK_USB][0] = 0;
+    out(LINK_UMOUNT, d, 0, 0);
+  }
+}
+
+void Link::play(uint8_t d, const uint8_t* p, uint32_t n) {
+  while (n) {
+    uint32_t k = n > LINK_PAYLOAD ? LINK_PAYLOAD : n;
+    out(LINK_MIDI, d, p, k);
+    p += k;
+    n -= k;
   }
 }
 

@@ -24,5 +24,6 @@ PlatformIO downloads these when it builds; their license notices apply to the bu
 | [Pico-PIO-USB](https://github.com/sekigon-gonnoc/Pico-PIO-USB)                              | MIT                             | `fm1buddy-feather.uf2`                      |
 | [U8g2](https://github.com/olikraus/u8g2)                                                    | BSD-2-Clause                    | `fm1buddy-feather.uf2`                      |
 | [ArduinoJson](https://github.com/bblanchon/ArduinoJson)                                     | MIT                             | `fm1buddy-cyd.bin`                          |
+| [NimBLE-Arduino](https://github.com/h2zero/NimBLE-Arduino), Apache NimBLE                   | Apache-2.0                      | `fm1buddy-cyd.bin`                          |
 | [SdFat](https://github.com/greiman/SdFat)                                                   | MIT                             | `fm1buddy-pico.uf2`                         |
 | [Adafruit NeoPixel](https://github.com/adafruit/Adafruit_NeoPixel)                          | LGPL-3.0                        | `fm1buddy-pico.uf2`                         |

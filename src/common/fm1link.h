@@ -14,16 +14,28 @@
  *   LINK_ROUTE   dev 0, payload: LINK_DEVS bytes, which devices each device's messages go to (bit n = dev n)
  *   LINK_MAP     dev 0, payload: the mapping rules (common/fm1map.h), 8 bytes each, all of them (none: clear)
  *
- * A device is the box's TinyUSB MIDI index (0..LINK_DEVS-1): it stays the same while the device is
- * plugged in, and is not the same device after a LINK_UMOUNT. */
+ * Devices 0..LINK_USB-1 are on the box's hub: the box's TinyUSB MIDI index. Devices LINK_USB..LINK_DEVS-1 are
+ * the CYD's own (Bluetooth MIDI), and the frames go the other way:
+ * CYD -> box
+ *   LINK_MOUNT   one of them came: vid, pid (0), its name
+ *   LINK_UMOUNT  it went
+ *   LINK_MIDI    MIDI bytes it sent: the box routes and maps them as if from a device on the hub
+ * box -> CYD
+ *   LINK_SEND    MIDI bytes for it
+ * The box tells everyone about them as about its own (MOUNT, UMOUNT and MIDI back), and forgets them when the
+ * CYD says HELLO; the CYD mounts them again after the box's HELLO.
+ *
+ * A device stays the same while it is plugged in (or connected), and is not the same device after a
+ * LINK_UMOUNT. */
 #ifndef FM1LINK_H
 #define FM1LINK_H
 
 #include <stdint.h>
 
 #define LINK_BAUD 1000000
-#define LINK_VERSION 1
-#define LINK_DEVS 4
+#define LINK_VERSION 2 /* 2: the CYD's own devices */
+#define LINK_USB 4     /* devices on the box's hub */
+#define LINK_DEVS 8    /* and the CYD's: all of them fit a byte, as in LINK_ROUTE and the mapping */
 #define LINK_PAYLOAD 256
 #define LINK_FRAME (2 + LINK_PAYLOAD + 1)             /* decoded */
 #define LINK_WIRE (LINK_FRAME + LINK_FRAME / 254 + 2) /* encoded, with the 0x00 */

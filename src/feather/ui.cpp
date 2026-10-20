@@ -308,7 +308,8 @@ static void draw() {
       for (int d = 0; d < LINK_DEVS; d++) {
         if (hub.dev[d].on && r < ROWS) {
           const Fm1Id* id = fm1::known(d);
-          line(r++, hub.dev[d].name[0] ? hub.dev[d].name : "(no name)", id ? id->text : "");
+          line(r++, hub.dev[d].name[0] ? hub.dev[d].name : "(no name)", id ? id->text : d >= LINK_USB ? "BT"
+                                                                                                      : "");
         }
       }
       if (!r) {
