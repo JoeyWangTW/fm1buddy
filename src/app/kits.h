@@ -31,6 +31,9 @@ struct Kit {
 bool scan(const std::string& dir, std::vector<Kit>& out);
 // the bank from them; 0 or an error
 const char* build(const std::string& dir, std::vector<uint8_t>& bank);
+// a bank's kits as folders of .wav files in dir, as build() takes them back (a drum kit's named after its voices,
+// bd.wav; the others numbered in their order, 01-kick.wav); 0 or an error
+const char* unpack(const std::vector<uint8_t>& bank, const std::string& dir);
 // a bank's kits; false if it isn't one
 bool describe(const std::vector<uint8_t>& bank, std::vector<Kit>& out);
 // "BOOMKIT (a drum kit), LOOPS (2 samples)"

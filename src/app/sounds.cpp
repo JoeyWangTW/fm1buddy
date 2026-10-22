@@ -16,6 +16,7 @@
 #include "hal.h"
 #include "kits.h"
 #include "midi.h"
+#include "songmidi.h"
 
 static void wait(uint32_t ms) {
   std::this_thread::sleep_for(std::chrono::milliseconds(ms));
@@ -536,6 +537,37 @@ const char* sounds::keep(int d, std::string& setup, void (*progress)(uint32_t, u
   mkdir((dir + "/" + setup).c_str(), 0777);
   if (!saveFile(setupFile(setup, s.app, SONG_FILE), song) || (!bank.empty() && !saveFile(setupFile(setup, s.app, KITS_FILE), bank))) {
     return "Can't write it to the SD card.";
+  }
+  return 0;
+}
+
+const char* sounds::exportSetup(const std::string& name, const char* app, std::string& done) {
+  Setup what = setup(name, app);
+  std::vector<uint8_t> data;
+  done.clear();
+  if (what.song) {
+    if (!loadFile(setupFile(name, app, SONG_FILE), data)) {
+      return "Can't read its song from the SD card.";
+    }
+    std::string dir = setupFile(name, app, SONG_FILE);
+    dir = dir.substr(0, dir.find_last_of('/') + 1) + MIDI_DIR;
+    int n = songmidi::write(data, dir);
+    if (n < 0) {
+      return "Its song isn't one this knows, or the SD card didn't take the files.";
+    }
+    done = std::to_string(n) + (n == 1 ? " pattern" : " patterns") + " as MIDI files in " MIDI_DIR "/";
+  }
+  if (!what.kits.empty() && !what.wavs) {
+    if (!loadFile(setupFile(name, app, KITS_FILE), data)) {
+      return "Can't read its kits from the SD card.";
+    }
+    if (const char* e = kits::unpack(data, setupFile(name, app, KITS_FOLDER))) {
+      return e;
+    }
+    done += std::string(done.empty() ? "" : ", and ") + "its kits as .wav files in " KITS_DIR "/";
+  }
+  if (done.empty()) {
+    done = "Nothing to export (its kits are .wav files already)";
   }
   return 0;
 }

@@ -19,6 +19,7 @@
 #define SYX_DIR "/syx"
 #define SETUPS_DIR "/setups"
 #define KITS_DIR "kits"
+#define MIDI_DIR "midi"
 
 namespace sounds {
 // what a device answered to
@@ -74,6 +75,9 @@ const char* send(int d, const std::vector<uint8_t>& data, void (*progress)(uint3
 const char* readVoice(int d, std::vector<uint8_t>& syx);
 // device d's song and kits into a new setup (setup-N, its name in setup); 0 or an error. *step: 0 the song, 1 the kits
 const char* keep(int d, std::string& setup, void (*progress)(uint32_t done, uint32_t total), int* step);
+// for other gear: a setup's patterns as MIDI files in midi/ (songmidi.h), and its kits (as kept) as .wav files in
+// kits/; 0 or an error, and what it did in done
+const char* exportSetup(const std::string& setup, const char* app, std::string& done);
 // a setup back to device d (which saves it): its kits, then its song; 0 or an error. *step: 0 making the kits from
 // .wav files, 1 sending them, 2 the song
 const char* restore(int d, const std::string& setup, void (*progress)(uint32_t done, uint32_t total), int* step);

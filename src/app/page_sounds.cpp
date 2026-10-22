@@ -146,11 +146,21 @@ void ui::syxPage(lv_obj_t* page) {
 
 // -------------------------------------------------------------------------------------- a setup ---
 static void loaded() {
-  if (jobs::kind != jobs::RESTORE) {
+  if (jobs::kind == jobs::RESTORE) {
+    toast(jobs::ok ? "Loaded: it's saved on it." : jobs::error.c_str(), !jobs::ok);
+  } else if (jobs::kind == jobs::EXPORT) {
+    toast(jobs::ok ? (jobs::saved + ".").c_str() : jobs::error.c_str(), !jobs::ok);
+  } else {
     return;
   }
-  toast(jobs::ok ? "Loaded: it's saved on it." : jobs::error.c_str(), !jobs::ok);
   sure = false;
+  go(setupPage);
+}
+
+static void exportTapped(lv_event_t*) {
+  if (!jobs::exportSetup(setup, speaks.app)) {
+    toast("Busy: try again in a moment.", true);
+  }
   go(setupPage);
 }
 
@@ -195,9 +205,12 @@ void ui::setupPage(lv_obj_t* page) {
     status = label(row, jobs::status().c_str(), &lv_font_montserrat_14, t.accent);
   } else {
     status = 0;
+    lv_obj_set_style_pad_column(row, 6, 0);
     lv_obj_t* b = button(row, (std::string("Load into ") + speaks.app).c_str(), loadTapped);
+    lv_obj_t* x = button(row, "Export", exportTapped);
     if (!has) {
       lv_obj_add_state(b, LV_STATE_DISABLED);
+      lv_obj_add_state(x, LV_STATE_DISABLED);
     }
   }
   lv_obj_t* l = label(body,
@@ -207,6 +220,13 @@ void ui::setupPage(lv_obj_t* page) {
                                           "kits and the song on the FM-1. Stop it playing first."
                                         : "It replaces the kits and the song on the FM-1. Stop it playing first.",
                       &lv_font_montserrat_12, t.dim);
+  lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(l, LV_PCT(100));
+  l = label(body,
+            "Export writes its patterns as MIDI files (" MIDI_DIR
+            "/, for a DAW or another sequencer) and its kits as .wav "
+            "files (" KITS_DIR "/, for other samplers, or to change them) in the setup's folder.",
+            &lv_font_montserrat_12, t.dim);
   lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
   lv_obj_set_width(l, LV_PCT(100));
   tick = syxTick;

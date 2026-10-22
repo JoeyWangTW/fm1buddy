@@ -37,7 +37,7 @@ static void progress(uint32_t d, uint32_t t) {
   total = t;
 }
 
-static const char* NAMES[] = {"none", "hub", "download", "scan", "join", "install", "probe", "send", "voice", "keep", "restore"};
+static const char* NAMES[] = {"none", "hub", "download", "scan", "join", "install", "probe", "send", "voice", "keep", "restore", "export"};
 
 static bool start(Kind k, void (*fn)(void*)) {
   if (running) {
@@ -326,6 +326,26 @@ static void restoreJob(void*) {
   finish(true);
 }
 
+static std::string exportApp;
+
+static void exportJob(void*) {
+  step = WRITING_FILES;
+  const char* e = sounds::exportSetup(setupName, exportApp.c_str(), saved);
+  if (e) {
+    error = e;
+  }
+  finish(!e);
+}
+
+bool jobs::exportSetup(const std::string& setup, const char* app) {
+  if (running) {
+    return false;
+  }
+  setupName = setup;
+  exportApp = app;
+  return start(EXPORT, exportJob);
+}
+
 bool jobs::keep(int d) {
   if (running) {
     return false;
@@ -424,6 +444,8 @@ std::string jobs::status() {
     }
     case ASKING_IT:
       return "Asking it...";
+    case WRITING_FILES:
+      return "Writing the files...";
     case GETTING: {
       uint32_t t = total, d = done;
       return (phase ? "Getting the kits " : "Getting the song ") + std::to_string(t ? (unsigned long long)d * 100 / t : 0) +

@@ -12,16 +12,17 @@
 
 namespace jobs {
 enum Kind { NONE,
-            HUB,        // update the Hub's list
-            DOWNLOAD,   // a Hub firmware to /fm1
-            SCAN,       // the Wi-Fi networks
-            JOIN,       // try a Wi-Fi network (Settings)
-            INSTALL,    // a firmware on the FM-1 (downloaded first, from the Hub, if it isn't on the SD card)
-            PROBE,      // what a device's firmware speaks (sounds.h)
-            SEND,       // a .syx to a device
-            VOICE,      // the stock firmware's current voice to the SD card
-            KEEP,       // what a firmware shares (fomajam's song) into a new setup
-            RESTORE };  // a setup back to it
+            HUB,       // update the Hub's list
+            DOWNLOAD,  // a Hub firmware to /fm1
+            SCAN,      // the Wi-Fi networks
+            JOIN,      // try a Wi-Fi network (Settings)
+            INSTALL,   // a firmware on the FM-1 (downloaded first, from the Hub, if it isn't on the SD card)
+            PROBE,     // what a device's firmware speaks (sounds.h)
+            SEND,      // a .syx to a device
+            VOICE,     // the stock firmware's current voice to the SD card
+            KEEP,      // what a firmware shares (fomajam's song) into a new setup
+            RESTORE,   // a setup back to it
+            EXPORT };  // a setup's patterns as MIDI files, its kits as .wav files
 enum Step { IDLE,
             JOINING,
             FETCHING,
@@ -34,7 +35,8 @@ enum Step { IDLE,
             RESTARTING,
             SENDING,
             ASKING_IT,
-            GETTING };  // KEEP
+            GETTING,          // KEEP
+            WRITING_FILES };  // EXPORT
 
 extern std::atomic<int> kind, step;
 extern std::atomic<bool> running;
@@ -48,7 +50,7 @@ extern std::vector<Firmware> hub;  // HUB: the new list
 extern std::string hubUpdated;
 extern int device;             // PROBE, SEND, VOICE, KEEP, RESTORE: the device
 extern sounds::Speaks speaks;  // PROBE
-extern std::string saved;      // VOICE: the file it went into; KEEP: the setup
+extern std::string saved;      // VOICE: the file it went into; KEEP: the setup; EXPORT: what it did
 
 bool hubList();
 bool download(const Firmware& f);
@@ -60,6 +62,7 @@ bool send(int d, const std::string& file);  // in /syx
 bool voice(int d);
 bool keep(int d);
 bool restore(int d, const std::string& setup);  // in /setups
+bool exportSetup(const std::string& setup, const char* app);
 // "Joining Wi-Fi", "Downloading 40%", "Writing 12%", ...
 std::string status();
 }  // namespace jobs

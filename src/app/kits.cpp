@@ -398,3 +398,76 @@ bool kits::describe(const std::vector<uint8_t>& b, std::vector<Kit>& out) {
   }
   return true;
 }
+
+// ------------------------------------------------------------------------------------- unpacking ---
+// a sample's ADPCM back to 16-bit (as the firmware plays it)
+static std::vector<int16_t> decode(const uint8_t* d, uint32_t len, int idx) {
+  std::vector<int16_t> out(len);
+  int32_t pred = 0;
+  for (uint32_t n = 0; n < len; n++) {
+    int code = (d[n >> 1] >> ((n & 1) << 2)) & 15;
+    int32_t step = STEP[idx], diff = step >> 3;
+    if (code & 4) {
+      diff += step;
+    }
+    if (code & 2) {
+      diff += step >> 1;
+    }
+    if (code & 1) {
+      diff += step >> 2;
+    }
+    pred = std::max<int32_t>(-32768, std::min<int32_t>(32767, code & 8 ? pred - diff : pred + diff));
+    idx = std::max<int>(0, std::min<int>(88, idx + INDEX[code & 7]));
+    out[n] = (int16_t)pred;
+  }
+  return out;
+}
+
+static bool writeWav(const std::string& path, const std::vector<int16_t>& x, uint32_t rate) {
+  uint8_t h[44] = {'R', 'I', 'F', 'F', 0, 0, 0, 0, 'W', 'A', 'V', 'E', 'f', 'm', 't', ' ', 16, 0, 0, 0, 1, 0, 1, 0};
+  wr32(h + 4, 36 + x.size() * 2);
+  wr32(h + 24, rate);
+  wr32(h + 28, rate * 2);
+  h[32] = 2, h[34] = 16;
+  memcpy(h + 36, "data", 4);
+  wr32(h + 40, x.size() * 2);
+  FILE* f = fopen(path.c_str(), "wb");
+  bool ok = f && fwrite(h, 1, 44, f) == 44;
+  for (size_t i = 0; ok && i < x.size(); i++) {
+    uint8_t s[2] = {(uint8_t)(x[i] & 0xFF), (uint8_t)((x[i] >> 8) & 0xFF)};
+    ok = fwrite(s, 1, 2, f) == 2;
+  }
+  ok &= f && !fclose(f);
+  return ok;
+}
+
+const char* kits::unpack(const std::vector<uint8_t>& b, const std::string& dir) {
+  std::vector<Kit> ks;
+  if (!describe(b, ks)) {
+    return "Its kits file isn't one.";
+  }
+  mkdir(dir.c_str(), 0777);
+  size_t base = 8 + 12 * b[4];
+  for (size_t k = 0; k < ks.size(); k++) {
+    const uint8_t* h = &b[8 + 12 * k];
+    std::string kd = dir + "/" + ks[k].name;
+    mkdir(kd.c_str(), 0777);
+    for (int s = 0; s < h[9]; s++) {
+      const uint8_t* e = &b[base + 20 * (h[8] + s)];
+      uint32_t off = le(e + 8, 4), len = le(e + 12, 4), rate = le(e + 16, 2);
+      if (off > b.size() || (len + 1) / 2 > b.size() - off || e[18] > 88) {
+        return "Its kits file isn't one.";
+      }
+      std::string n = ks[k].samples[s];
+      for (auto& c : n) {
+        c = tolower((unsigned char)c);
+      }
+      char num[4];
+      snprintf(num, sizeof num, "%02d-", s + 1);
+      if (!writeWav(kd + "/" + (ks[k].drum ? "" : num) + n + ".wav", decode(&b[off], len, e[18]), rate)) {
+        return "Can't write it to the SD card.";
+      }
+    }
+  }
+  return 0;
+}
