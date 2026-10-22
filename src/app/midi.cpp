@@ -1,0 +1,317 @@
+#include "midi.h"
+
+#include <stdio.h>
+#include <string.h>
+
+#include <mutex>
+
+#include "hal.h"
+
+#define OUT_N 512  // packets waiting for each device
+#define SYSEX_Q 8
+
+namespace midi {
+std::atomic<bool> thru{true};
+std::atomic<uint32_t> seq{0};
+}  // namespace midi
+
+using namespace midi;
+
+static std::mutex lock;
+static uint32_t serials;
+
+// MIDI bytes to USB MIDI packets: running status, SysEx
+struct Enc {
+  uint8_t st, nd, data[2], sxb[3], sxn;
+  bool sx;
+};
+
+struct Slot {
+  Dev d;
+  // to it: USB MIDI packets
+  uint8_t out[OUT_N][4];
+  uint32_t ow, orr;
+  Enc enc, dec;  // bytes to it; bytes from it (Bluetooth)
+  // from it: the SysEx being put together, and the complete ones
+  uint8_t cur[SYSEX_MAX];
+  uint32_t curN;
+  bool curOn;
+  uint8_t q[SYSEX_Q][SYSEX_MAX];
+  uint8_t qn[SYSEX_Q];
+  uint32_t qw, qr;
+};
+// on the heap (PSRAM, on the S3: big blocks go there)
+static Slot* slots = new Slot[MIDI_DEVS]();
+
+static void reset(Slot& s) {
+  memset(&s, 0, sizeof s);
+}
+
+// ------------------------------------------------------------------------------------------ the host ---
+void midi::mount(int d, uint16_t vid, uint16_t pid, const char* name) {
+  if (d < 0 || d >= MIDI_DEVS) {
+    return;
+  }
+  std::lock_guard<std::mutex> g(lock);
+  Slot& s = slots[d];
+  reset(s);
+  s.d.on = true;
+  s.d.vid = vid;
+  s.d.pid = pid;
+  snprintf(s.d.name, sizeof s.d.name, "%s", name && *name ? name : "USB MIDI");
+  s.d.serial = ++serials;
+  seq++;
+  hal::log("midi: %d is %s (%04X:%04X)", d, s.d.name, vid, pid);
+}
+
+void midi::umount(int d) {
+  if (d < 0 || d >= MIDI_DEVS) {
+    return;
+  }
+  std::lock_guard<std::mutex> g(lock);
+  hal::log("midi: %d (%s) went", d, slots[d].d.name);
+  reset(slots[d]);
+  seq++;
+}
+
+static void push(Slot& s, const uint8_t p[4]) {
+  if (s.ow - s.orr < OUT_N) {
+    memcpy(s.out[s.ow % OUT_N], p, 4);
+    s.ow++;
+  }
+}
+
+static void sysexByte(Slot& s, uint8_t b) {
+  if (b == 0xF0) {
+    s.curOn = true;
+    s.curN = 0;
+  }
+  if (!s.curOn) {
+    return;
+  }
+  if (s.curN < SYSEX_MAX) {
+    s.cur[s.curN++] = b;
+  } else {
+    s.curOn = false;  // too long to keep
+    return;
+  }
+  if (b == 0xF7) {
+    s.curOn = false;
+    if (s.qw - s.qr < SYSEX_Q) {
+      memcpy(s.q[s.qw % SYSEX_Q], s.cur, s.curN);
+      s.qn[s.qw % SYSEX_Q] = s.curN;
+      s.qw++;
+    }
+  }
+}
+
+static void inLocked(int d, const uint8_t p[4]);
+
+void midi::in(int d, const uint8_t p[4]) {
+  if (d < 0 || d >= MIDI_DEVS) {
+    return;
+  }
+  std::lock_guard<std::mutex> g(lock);
+  inLocked(d, p);
+}
+
+static void inLocked(int d, const uint8_t p[4]) {
+  Slot& s = slots[d];
+  if (!s.d.on) {
+    return;
+  }
+  uint8_t cin = p[0] & 0x0F;
+  switch (cin) {
+    case 0x4:  // SysEx: 3 bytes, more to come
+    case 0x7:  // SysEx: the last 3
+      sysexByte(s, p[1]), sysexByte(s, p[2]), sysexByte(s, p[3]);
+      break;
+    case 0x6:  // the last 2
+      sysexByte(s, p[1]), sysexByte(s, p[2]);
+      break;
+    case 0x5:  // 1 byte: the last of a SysEx, or system common
+      sysexByte(s, p[1]);
+      break;
+    case 0x8 ... 0xE:  // channel messages
+      memcpy(s.d.last, p + 1, 3);
+      s.d.count++;
+      s.d.lastIn = hal::millis();
+      break;
+  }
+  if (cin == 0x4 || cin == 0x5 || cin == 0x6 || cin == 0x7) {
+    s.d.lastIn = hal::millis();
+  }
+  if (!thru) {
+    return;
+  }
+  uint8_t q[4] = {cin, p[1], p[2], p[3]};  // cable 0
+  for (int o = 0; o < MIDI_DEVS; o++) {
+    if (o != d && slots[o].d.on) {
+      push(slots[o], q);
+    }
+  }
+}
+
+void midi::service(int from, int to) {
+  uint8_t buf[64][4];
+  for (int d = from; d < to; d++) {
+    uint32_t n;
+    {
+      std::lock_guard<std::mutex> g(lock);
+      Slot& s = slots[d];
+      n = s.ow - s.orr;
+      if (n > 64) {
+        n = 64;
+      }
+      for (uint32_t i = 0; i < n; i++) {
+        memcpy(buf[i], s.out[(s.orr + i) % OUT_N], 4);
+      }
+    }
+    if (!n) {
+      continue;
+    }
+    uint32_t took = hal::midiOut(d, buf[0], n);
+    std::lock_guard<std::mutex> g(lock);
+    slots[d].orr += took;
+  }
+}
+
+// ---------------------------------------------------------------------------------------- anywhere ---
+bool midi::dev(int d, Dev& out) {
+  if (d < 0 || d >= MIDI_DEVS) {
+    return false;
+  }
+  std::lock_guard<std::mutex> g(lock);
+  out = slots[d].d;
+  return out.on;
+}
+
+// one MIDI byte into packets, as USB MIDI wants them; each packet to emit
+template <typename F>
+static void streamByte(Enc& s, uint8_t b, F emit) {
+  auto packet = [&](uint8_t cin, uint8_t x, uint8_t y, uint8_t z) {
+    uint8_t p[4] = {cin, x, y, z};
+    emit(p);
+  };
+  if (b >= 0xF8) {  // realtime: anywhere, even inside a SysEx
+    packet(0xF, b, 0, 0);
+  } else if (b == 0xF0) {
+    s.sx = true;
+    s.sxb[0] = b;
+    s.sxn = 1;
+    s.st = 0;
+  } else if (b == 0xF7) {
+    if (s.sx) {
+      s.sxb[s.sxn] = b;
+      packet((uint8_t)(5 + s.sxn), s.sxb[0], s.sxn > 0 ? s.sxb[1] : 0, s.sxn == 2 ? s.sxb[2] : 0);
+      s.sx = false;
+    }
+  } else if (b & 0x80) {
+    s.sx = false;
+    s.nd = 0;
+    s.st = b;
+    if (b == 0xF6) {  // tune request: no data
+      packet(0x5, b, 0, 0);
+      s.st = 0;
+    } else if (b >= 0xF4) {
+      s.st = 0;
+    }
+  } else if (s.sx) {
+    s.sxb[s.sxn++] = b;
+    if (s.sxn == 3) {
+      packet(0x4, s.sxb[0], s.sxb[1], s.sxb[2]);
+      s.sxn = 0;
+    }
+  } else if (s.st) {
+    uint8_t hi = s.st >> 4;
+    uint8_t need = s.st < 0xF0 ? (hi == 0xC || hi == 0xD ? 1 : 2) : s.st == 0xF2 ? 2
+                                                                                 : 1;
+    s.data[s.nd++] = b;
+    if (s.nd == need) {
+      uint8_t cin = s.st < 0xF0 ? hi : need == 1 ? 0x2
+                                                 : 0x3;
+      packet(cin, s.st, s.data[0], need > 1 ? s.data[1] : 0);
+      s.nd = 0;
+      if (s.st >= 0xF0) {
+        s.st = 0;
+      }
+    }
+  }
+}
+
+void midi::send(int d, const uint8_t* bytes, uint32_t n) {
+  if (d < 0 || d >= MIDI_DEVS) {
+    return;
+  }
+  std::lock_guard<std::mutex> g(lock);
+  Slot& s = slots[d];
+  if (!s.d.on) {
+    return;
+  }
+  for (uint32_t i = 0; i < n; i++) {
+    streamByte(s.enc, bytes[i], [&](const uint8_t* p) { push(s, p); });
+  }
+}
+
+void midi::bytesIn(int d, const uint8_t* bytes, uint32_t n) {
+  if (d < 0 || d >= MIDI_DEVS) {
+    return;
+  }
+  std::lock_guard<std::mutex> g(lock);
+  for (uint32_t i = 0; i < n; i++) {
+    streamByte(slots[d].dec, bytes[i], [&](const uint8_t* p) { inLocked(d, p); });
+  }
+}
+
+uint32_t midi::sysex(int d, uint8_t* out) {
+  if (d < 0 || d >= MIDI_DEVS) {
+    return 0;
+  }
+  std::lock_guard<std::mutex> g(lock);
+  Slot& s = slots[d];
+  if (s.qr == s.qw) {
+    return 0;
+  }
+  uint32_t n = s.qn[s.qr % SYSEX_Q];
+  memcpy(out, s.q[s.qr % SYSEX_Q], n);
+  s.qr++;
+  return n;
+}
+
+void midi::drain(int d) {
+  if (d < 0 || d >= MIDI_DEVS) {
+    return;
+  }
+  std::lock_guard<std::mutex> g(lock);
+  slots[d].qr = slots[d].qw;
+}
+
+void midi::describe(const uint8_t m[3], char* out, int n) {
+  static const char* NOTES[] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+  int ch = (m[0] & 0x0F) + 1;
+  switch (m[0] >> 4) {
+    case 0x8:
+      snprintf(out, n, "note off %s%d  ch %d", NOTES[m[1] % 12], m[1] / 12 - 1, ch);
+      break;
+    case 0x9:
+      snprintf(out, n, "note %s%d  vel %d  ch %d", NOTES[m[1] % 12], m[1] / 12 - 1, m[2], ch);
+      break;
+    case 0xA:
+      snprintf(out, n, "aftertouch %d  ch %d", m[2], ch);
+      break;
+    case 0xB:
+      snprintf(out, n, "cc %d = %d  ch %d", m[1], m[2], ch);
+      break;
+    case 0xC:
+      snprintf(out, n, "program %d  ch %d", m[1] + 1, ch);
+      break;
+    case 0xD:
+      snprintf(out, n, "pressure %d  ch %d", m[1], ch);
+      break;
+    case 0xE:
+      snprintf(out, n, "pitch bend %d  ch %d", ((m[2] << 7) | m[1]) - 8192, ch);
+      break;
+    default:
+      snprintf(out, n, "-");
+  }
+}

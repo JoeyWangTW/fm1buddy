@@ -1,4 +1,4 @@
-# Builds the CYD-S3's and the CYD's firmware, the Feather's and the RP2040-Zero's .uf2, and the cases' STLs. Every run keeps them as a "firmware" artifact; tags (v0.2) also
+# Builds the CYD-S3's firmware and the case's STLs. Every run keeps them as a "firmware" artifact; tags (v0.2) also
 # get a release with them attached.
 name: build
 on:
@@ -17,35 +17,20 @@ jobs:
           python-version: '3.12'
       - run: pip install platformio esptool==4.8.1
       - run: pio run
-      - name: one image for the CYD, bootloader and all
-        run: |
-          mkdir -p build
-          B=.pio/build/cyd
-          esptool.py --chip esp32 merge_bin -o build/fm1buddy-cyd.bin \
-            0x1000 $B/bootloader.bin 0x8000 $B/partitions.bin \
-            0xe000 ~/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin \
-            0x10000 $B/firmware.bin
       - run: |
+          mkdir -p build
           cp .pio/build/cyd-s3/firmware.factory.bin build/fm1buddy-cyd-s3.bin
-          cp .pio/build/feather/firmware.uf2 build/fm1buddy-feather.uf2
-          cp .pio/build/pico/firmware.uf2 build/fm1buddy-pico.uf2
       - uses: actions/upload-artifact@v4
         with:
           name: firmware
           path: |
             build/fm1buddy-cyd-s3.bin
-            build/fm1buddy-cyd.bin
-            build/fm1buddy-feather.uf2
-            build/fm1buddy-pico.uf2
           if-no-files-found: error
       - uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/v')
         with:
           files: |
             build/fm1buddy-cyd-s3.bin
-            build/fm1buddy-cyd.bin
-            build/fm1buddy-feather.uf2
-            build/fm1buddy-pico.uf2
           fail_on_unmatched_files: true
 
   cases:

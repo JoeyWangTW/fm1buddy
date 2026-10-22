@@ -1,0 +1,396 @@
+// The app's frame: the theme, the rail on the left (the tabs, and what's on), pages, and watching the jobs
+#include "ui.h"
+
+#include "catalog.h"
+#include "fm1.h"
+#include "hal.h"
+#include "jobs.h"
+#include "src/themes/lv_theme_private.h"
+#include "ui_priv.h"
+
+namespace ui {
+void (*tick)();
+void (*jobDone)();
+}  // namespace ui
+
+using namespace ui;
+
+static lv_obj_t *rail, *pageObj, *tabs[3], *stSd, *stWifi, *stBt, *stFm1;
+static Tab tab = FIRMWARE;
+static Builder current = firmwarePage;
+static bool wasRunning;
+
+const Theme& ui::theme() {
+  return THEMES[settings.theme];
+}
+
+// ---------------------------------------------------------------------------------------------- theme ---
+static lv_theme_t th;
+static lv_style_t sScreen, sCard, sBtn, sBtnPr, sBtnCk, sBtnDis, sInput, sInputFocus, sItems, sItemsPr, sItemsCk,
+    sOff, sAccent, sKnob, sScrollbar, sPanel, sCursor;
+
+static void apply(lv_theme_t*, lv_obj_t* o) {
+  lv_obj_add_style(o, &sScrollbar, LV_PART_SCROLLBAR);
+  if (!lv_obj_get_parent(o)) {
+    lv_obj_add_style(o, &sScreen, 0);
+  } else if (lv_obj_get_class(o) == &lv_obj_class) {
+    lv_obj_add_style(o, &sCard, 0);
+  } else if (lv_obj_check_type(o, &lv_button_class)) {
+    lv_obj_add_style(o, &sBtn, 0);
+    lv_obj_add_style(o, &sBtnPr, LV_STATE_PRESSED);
+    lv_obj_add_style(o, &sBtnCk, LV_STATE_CHECKED);
+    lv_obj_add_style(o, &sBtnDis, LV_STATE_DISABLED);
+  } else if (lv_obj_check_type(o, &lv_buttonmatrix_class) || lv_obj_check_type(o, &lv_keyboard_class)) {
+    // a keyboard's own keys (shift, backspace, ...) are "checked": quieter than the accent
+    bool kb = lv_obj_check_type(o, &lv_keyboard_class);
+    lv_obj_add_style(o, &sPanel, 0);
+    lv_obj_add_style(o, &sItems, LV_PART_ITEMS);
+    lv_obj_add_style(o, kb ? &sItemsPr : &sItemsCk, LV_PART_ITEMS | LV_STATE_CHECKED);
+    lv_obj_add_style(o, kb ? &sItemsCk : &sItemsPr, LV_PART_ITEMS | LV_STATE_PRESSED);
+  } else if (lv_obj_check_type(o, &lv_textarea_class)) {
+    lv_obj_add_style(o, &sInput, 0);
+    lv_obj_add_style(o, &sInputFocus, LV_STATE_FOCUSED);
+    lv_obj_add_style(o, &sCursor, LV_PART_CURSOR | LV_STATE_FOCUSED);
+  } else if (lv_obj_check_type(o, &lv_dropdown_class)) {
+    lv_obj_add_style(o, &sInput, 0);
+    lv_obj_add_style(o, &sInputFocus, LV_STATE_FOCUSED);
+  } else if (lv_obj_check_type(o, &lv_dropdownlist_class)) {
+    lv_obj_add_style(o, &sPanel, 0);
+    lv_obj_add_style(o, &sItemsPr, LV_PART_SELECTED | LV_STATE_PRESSED);
+    lv_obj_add_style(o, &sItemsCk, LV_PART_SELECTED | LV_STATE_CHECKED);
+  } else if (lv_obj_check_type(o, &lv_switch_class) || lv_obj_check_type(o, &lv_slider_class) ||
+             lv_obj_check_type(o, &lv_bar_class)) {
+    lv_obj_add_style(o, &sOff, 0);
+    lv_obj_add_style(o, &sAccent, LV_PART_INDICATOR | LV_STATE_CHECKED);
+    lv_obj_add_style(o, &sAccent, LV_PART_INDICATOR);
+    lv_obj_add_style(o, &sKnob, LV_PART_KNOB);
+  } else if (lv_obj_check_type(o, &lv_spinner_class)) {
+    lv_obj_set_style_arc_color(o, color(theme().off), 0);
+    lv_obj_set_style_arc_color(o, color(theme().accent), LV_PART_INDICATOR);
+  }
+}
+
+static void setTheme(lv_display_t* disp) {
+  static bool made;
+  const Theme& t = theme();
+  lv_style_t* all[] = {&sScreen, &sCard, &sBtn, &sBtnPr, &sBtnCk, &sBtnDis, &sInput, &sInputFocus, &sItems,
+                       &sItemsPr, &sItemsCk, &sOff, &sAccent, &sKnob, &sScrollbar, &sPanel, &sCursor};
+  for (lv_style_t* s : all) {
+    if (made) {
+      lv_style_reset(s);
+    }
+    lv_style_init(s);
+  }
+  made = true;
+  lv_style_set_bg_color(&sScreen, color(t.bg));
+  lv_style_set_bg_opa(&sScreen, LV_OPA_COVER);
+  lv_style_set_text_color(&sScreen, color(t.text));
+
+  lv_style_set_bg_color(&sCard, color(t.panel));
+  lv_style_set_border_color(&sCard, color(t.beat));
+  lv_style_set_text_color(&sCard, color(t.text));
+
+  lv_style_set_bg_color(&sBtn, color(t.off));
+  lv_style_set_text_color(&sBtn, color(t.text));
+  lv_style_set_shadow_width(&sBtn, 0);
+  lv_style_set_radius(&sBtn, 6);
+  lv_style_set_pad_hor(&sBtn, 10);
+  lv_style_set_pad_ver(&sBtn, 6);
+  lv_style_set_bg_color(&sBtnPr, color(t.beat));
+  lv_style_set_bg_color(&sBtnCk, color(t.accent));
+  lv_style_set_text_color(&sBtnCk, color(t.bg));
+  lv_style_set_bg_color(&sBtnDis, color(t.panel));
+  lv_style_set_text_color(&sBtnDis, color(t.dim));
+
+  lv_style_set_bg_color(&sInput, color(t.off));
+  lv_style_set_bg_opa(&sInput, LV_OPA_COVER);
+  lv_style_set_border_color(&sInput, color(t.beat));
+  lv_style_set_border_width(&sInput, 1);
+  lv_style_set_text_color(&sInput, color(t.text));
+  lv_style_set_radius(&sInput, 6);
+  lv_style_set_border_color(&sInputFocus, color(t.accent));
+  lv_style_set_border_color(&sCursor, color(t.accent));
+
+  lv_style_set_bg_color(&sPanel, color(t.panel));
+  lv_style_set_bg_opa(&sPanel, LV_OPA_COVER);
+  lv_style_set_border_color(&sPanel, color(t.beat));
+  lv_style_set_text_color(&sPanel, color(t.text));
+
+  lv_style_set_bg_color(&sItems, color(t.off));
+  lv_style_set_text_color(&sItems, color(t.text));
+  lv_style_set_shadow_width(&sItems, 0);
+  lv_style_set_bg_color(&sItemsPr, color(t.beat));
+  lv_style_set_bg_color(&sItemsCk, color(t.accent));
+  lv_style_set_text_color(&sItemsCk, color(t.bg));
+
+  lv_style_set_bg_color(&sOff, color(t.off));
+  lv_style_set_bg_opa(&sOff, LV_OPA_COVER);
+  lv_style_set_bg_color(&sAccent, color(t.accent));
+  lv_style_set_bg_color(&sKnob, color(t.text));
+  lv_style_set_bg_color(&sScrollbar, color(t.dim));
+
+  // LVGL's own theme underneath (sizes, paddings, what each widget is made of), ours on top
+  lv_theme_t* base = lv_theme_default_init(disp, color(t.accent), color(t.knob[3]), settings.theme != THEME_LIGHT,
+                                           &lv_font_montserrat_14);
+  th = *base;
+  lv_theme_set_parent(&th, base);
+  lv_theme_set_apply_cb(&th, apply);
+  lv_display_set_theme(disp, &th);
+}
+
+// ------------------------------------------------------------------------------------- building blocks ---
+lv_obj_t* ui::box(lv_obj_t* parent, lv_flex_flow_t flow) {
+  lv_obj_t* o = lv_obj_create(parent);
+  lv_obj_remove_style_all(o);
+  lv_obj_set_size(o, LV_PCT(100), LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(o, flow);
+  lv_obj_remove_flag(o, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(o, LV_OBJ_FLAG_CLICKABLE);  // a tap goes to what it's in
+  return o;
+}
+
+lv_obj_t* ui::label(lv_obj_t* parent, const char* text, const lv_font_t* font, uint32_t c) {
+  lv_obj_t* l = lv_label_create(parent);
+  lv_label_set_text(l, text);
+  lv_obj_set_style_text_font(l, font, 0);
+  lv_obj_set_style_text_color(l, color(c), 0);
+  return l;
+}
+
+lv_obj_t* ui::line(lv_obj_t* parent, const char* text, const lv_font_t* font, uint32_t c) {
+  lv_obj_t* l = label(parent, text, font, c);
+  lv_label_set_long_mode(l, LV_LABEL_LONG_DOT);
+  lv_obj_set_height(l, lv_font_get_line_height(font));
+  return l;
+}
+
+lv_obj_t* ui::button(lv_obj_t* parent, const char* text, lv_event_cb_t cb, void* data) {
+  lv_obj_t* b = lv_button_create(parent);
+  lv_obj_t* l = lv_label_create(b);
+  lv_label_set_text(l, text);
+  lv_obj_center(l);
+  if (cb) {
+    lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, data);
+  }
+  return b;
+}
+
+lv_obj_t* ui::header(lv_obj_t* page, const char* title, Builder back) {
+  lv_obj_t* row = box(page, LV_FLEX_FLOW_ROW);
+  lv_obj_set_height(row, HEAD_H);
+  lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_column(row, 6, 0);
+  if (back) {
+    lv_obj_t* b = button(row, LV_SYMBOL_LEFT, [](lv_event_t* e) { go((Builder)lv_event_get_user_data(e)); }, (void*)back);
+    lv_obj_set_size(b, 40, 30);
+  }
+  if (title) {
+    lv_obj_t* l = line(row, title, &lv_font_montserrat_20, theme().text);
+    lv_obj_set_flex_grow(l, 1);
+  }
+  return row;
+}
+
+lv_obj_t* ui::scroller(lv_obj_t* page) {
+  lv_obj_t* o = box(page);
+  lv_obj_set_width(o, LV_PCT(100));
+  lv_obj_set_flex_grow(o, 1);
+  lv_obj_add_flag(o, (lv_obj_flag_t)(LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE));
+  lv_obj_set_scroll_dir(o, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(o, LV_SCROLLBAR_MODE_ACTIVE);
+  lv_obj_set_style_bg_color(o, color(theme().dim), LV_PART_SCROLLBAR);
+  lv_obj_set_style_bg_opa(o, LV_OPA_70, LV_PART_SCROLLBAR);
+  lv_obj_set_style_width(o, 3, LV_PART_SCROLLBAR);
+  return o;
+}
+
+lv_obj_t* ui::listRow(lv_obj_t* parent, lv_event_cb_t cb, void* data) {
+  const Theme& t = theme();
+  lv_obj_t* r = box(parent, LV_FLEX_FLOW_ROW);
+  lv_obj_set_height(r, ROW_H);
+  lv_obj_set_flex_align(r, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_hor(r, 6, 0);
+  lv_obj_set_style_pad_column(r, 6, 0);
+  lv_obj_set_style_border_side(r, LV_BORDER_SIDE_BOTTOM, 0);
+  lv_obj_set_style_border_width(r, 1, 0);
+  lv_obj_set_style_border_color(r, color(t.off), 0);
+  lv_obj_set_style_bg_color(r, color(t.off), LV_STATE_PRESSED);
+  lv_obj_set_style_bg_opa(r, LV_OPA_COVER, LV_STATE_PRESSED);
+  if (cb) {
+    lv_obj_add_flag(r, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(r, cb, LV_EVENT_CLICKED, data);
+  }
+  return r;
+}
+
+lv_obj_t* ui::chip(lv_obj_t* parent, const char* text, uint32_t c) {
+  lv_obj_t* l = label(parent, text, &lv_font_montserrat_12, c);
+  lv_obj_set_style_border_color(l, color(c), 0);
+  lv_obj_set_style_border_width(l, 1, 0);
+  lv_obj_set_style_radius(l, 8, 0);
+  lv_obj_set_style_pad_hor(l, 6, 0);
+  lv_obj_set_style_pad_ver(l, 1, 0);
+  return l;
+}
+
+void ui::toast(const char* text, bool bad) {
+  const Theme& t = theme();
+  lv_obj_t* l = label(lv_layer_top(), text, &lv_font_montserrat_14, bad ? t.text : t.bg);
+  lv_obj_set_style_bg_color(l, color(bad ? 0xc02020 : t.accent), 0);
+  lv_obj_set_style_bg_opa(l, LV_OPA_COVER, 0);
+  lv_obj_set_style_radius(l, 6, 0);
+  lv_obj_set_style_pad_all(l, 8, 0);
+  lv_obj_set_width(l, PAGE_W - 24);
+  lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
+  lv_obj_align(l, LV_ALIGN_BOTTOM_MID, RAIL_W / 2, -8);
+  lv_obj_delete_delayed(l, bad ? 4000 : 2500);
+}
+
+// --------------------------------------------------------------------------------------------- frame ---
+static void railStatus() {
+  const Theme& t = theme();
+  lv_obj_set_style_text_color(stSd, color(hal::sd() ? t.dim : t.knob[0]), 0);
+  bool wifi = hal::wifiOn() || (jobs::running && (jobs::step == jobs::JOINING || jobs::step == jobs::FETCHING));
+  lv_obj_set_style_text_color(stWifi, color(wifi ? t.accent : t.dim), 0);
+  lv_obj_set_style_opa(stWifi, wifi ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+  lv_obj_set_style_text_color(stBt, color(t.accent), 0);
+  lv_obj_set_style_opa(stBt, hal::bleIsOn() ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+  int d = fm1::current();
+  const Fm1Id* id = fm1::known(d);
+  lv_obj_set_style_text_color(stFm1, color(!id ? t.dim : id->ota() ? t.knob[1]
+                                                                   : t.accent),
+                              0);
+}
+
+static void markTab() {
+  for (int i = 0; i < 3; i++) {
+    if (i == tab) {
+      lv_obj_add_state(tabs[i], LV_STATE_CHECKED);
+    } else {
+      lv_obj_remove_state(tabs[i], LV_STATE_CHECKED);
+    }
+  }
+}
+
+void ui::fullscreen(bool on) {
+  if (on) {
+    lv_obj_add_flag(rail, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_remove_flag(rail, LV_OBJ_FLAG_HIDDEN);
+  }
+  lv_obj_set_pos(pageObj, on ? 0 : RAIL_W, 0);
+  lv_obj_set_width(pageObj, on ? SCREEN_W : PAGE_W);
+}
+
+void ui::go(Builder b) {
+  hal::bleSearch(false);  // only while the MIDI page shows
+  tick = 0;
+  jobDone = 0;
+  current = b;
+  fullscreen(false);
+  lv_obj_clean(pageObj);
+  lv_obj_scroll_to_y(pageObj, 0, LV_ANIM_OFF);
+  b(pageObj);
+}
+
+void ui::go(Tab t, Builder b) {
+  tab = t;
+  markTab();
+  go(b);
+}
+
+static void tabClicked(lv_event_t* e) {
+  static const Builder home[] = {firmwarePage, midiPage, settingsPage};
+  Tab t = (Tab)(intptr_t)lv_event_get_user_data(e);
+  go(t, home[t]);
+}
+
+static void build() {
+  const Theme& t = theme();
+  lv_obj_t* scr = lv_screen_active();
+  lv_obj_clean(scr);
+  lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+
+  rail = ui::box(scr);
+  lv_obj_set_size(rail, RAIL_W, SCREEN_H);
+  lv_obj_set_style_bg_color(rail, color(t.panel), 0);
+  lv_obj_set_style_bg_opa(rail, LV_OPA_COVER, 0);
+  lv_obj_set_style_pad_ver(rail, 4, 0);
+  lv_obj_set_style_pad_row(rail, 4, 0);
+  lv_obj_set_flex_align(rail, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  static const char* icons[] = {LV_SYMBOL_DOWNLOAD, LV_SYMBOL_AUDIO, LV_SYMBOL_SETTINGS};
+  for (int i = 0; i < 3; i++) {
+    tabs[i] = button(rail, icons[i], tabClicked, (void*)(intptr_t)i);
+    lv_obj_set_size(tabs[i], 40, 40);
+    lv_obj_set_style_bg_opa(tabs[i], LV_OPA_TRANSP, 0);
+    lv_obj_set_style_text_color(tabs[i], color(t.dim), 0);
+    lv_obj_set_style_text_font(tabs[i], &lv_font_montserrat_20, 0);
+    lv_obj_set_style_bg_opa(tabs[i], LV_OPA_COVER, LV_STATE_CHECKED);
+    lv_obj_set_style_bg_color(tabs[i], color(t.off), LV_STATE_CHECKED);
+    lv_obj_set_style_text_color(tabs[i], color(t.accent), LV_STATE_CHECKED);
+  }
+  lv_obj_t* gap = ui::box(rail);
+  lv_obj_set_flex_grow(gap, 1);
+  stWifi = label(rail, LV_SYMBOL_WIFI, &lv_font_montserrat_16, t.dim);
+  stBt = label(rail, LV_SYMBOL_BLUETOOTH, &lv_font_montserrat_16, t.dim);
+  lv_obj_set_style_opa(stBt, LV_OPA_TRANSP, 0);
+  stSd = label(rail, LV_SYMBOL_SD_CARD, &lv_font_montserrat_16, t.dim);
+  stFm1 = label(rail, "FM-1", &lv_font_montserrat_12, t.dim);
+
+  pageObj = ui::box(scr);
+  lv_obj_set_size(pageObj, PAGE_W, SCREEN_H);
+  lv_obj_set_pos(pageObj, RAIL_W, 0);
+  lv_obj_set_style_pad_all(pageObj, 6, 0);
+  lv_obj_set_style_pad_row(pageObj, 4, 0);
+
+  markTab();
+  railStatus();
+}
+
+static void watch(lv_timer_t*) {
+  if (wasRunning && !jobs::running) {
+    if (jobs::ok && jobs::kind == jobs::HUB) {
+      catalog::hub.swap(jobs::hub);
+      std::vector<Firmware>().swap(jobs::hub);  // the old list
+      catalog::hubUpdated = jobs::hubUpdated;
+      catalog::scanSd();
+    } else if (jobs::kind == jobs::DOWNLOAD || jobs::kind == jobs::INSTALL) {
+      catalog::scanSd();
+    }
+    if (jobDone) {
+      jobDone();
+    }
+  }
+  wasRunning = jobs::running;
+  fm1::watch();
+  if (tick) {
+    tick();
+  }
+  railStatus();
+}
+
+void ui::rebuild() {
+  lv_async_call(
+      [](void*) {
+        setTheme(lv_display_get_default());
+        build();
+        go(current);
+      },
+      0);
+}
+
+void ui::begin() {
+  settingsLoad();
+  hal::backlight(settings.brightness);
+  bool bt = false;
+  if (hal::load("bluetooth", &bt, 1) && bt) {
+    hal::bleOn(true);
+  }
+  std::string err;
+  catalog::parseHub(catalog::hub, catalog::hubUpdated, err);
+  catalog::scanSd();
+  setTheme(lv_display_get_default());
+  build();
+  go(firmwarePage);
+  lv_timer_create(watch, 100, 0);
+}

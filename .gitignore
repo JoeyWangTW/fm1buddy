@@ -4,3 +4,6 @@ build/
 site/fw/
 .DS_Store
 src/idf_component.yml*
+sim/
+compile_commands.json
+.cache/
