@@ -1,7 +1,8 @@
-// Sounds: the device (the FM-1, or anything on the hub), what its firmware speaks, recording what it sends, and the
-// .syx files on the SD card (to look in, and send to it)
+// Sounds: the device (the FM-1, or anything on the hub), what its firmware speaks, recording what it sends, the
+// .syx files on the SD card (to look in, and send to it), and setups (what a firmware like fomajam shares)
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #include "fm1.h"
 #include "hal.h"
@@ -19,9 +20,10 @@ static sounds::Speaks speaks;
 static bool recording;
 static uint32_t shownSeq;
 static lv_obj_t *status, *recLabel;
-static bool asking;      // the chips wait for a probe
-static std::string sel;  // the file shown
-static bool sure;        // send: tapped once
+static bool asking;        // the chips wait for a probe
+static std::string sel;    // the file shown
+static std::string setup;  // the setup shown
+static bool sure;          // send, load: tapped once
 
 // the device: the one picked if it's still there; else the FM-1; else the first one
 static void pickDevice() {
@@ -142,6 +144,61 @@ void ui::syxPage(lv_obj_t* page) {
   jobDone = sent;
 }
 
+// -------------------------------------------------------------------------------------- a setup ---
+static void loaded() {
+  if (jobs::kind != jobs::RESTORE) {
+    return;
+  }
+  toast(jobs::ok ? "Loaded: it's saved on it." : jobs::error.c_str(), !jobs::ok);
+  sure = false;
+  go(setupPage);
+}
+
+static void loadTapped(lv_event_t* e) {
+  if (!sure) {
+    sure = true;
+    lv_label_set_text(lv_obj_get_child((lv_obj_t*)lv_event_get_target(e), 0), "Sure? Tap again");
+    return;
+  }
+  if (!jobs::restore(dev, setup)) {
+    toast("Busy: try again in a moment.", true);
+  }
+  go(setupPage);
+}
+
+void ui::setupPage(lv_obj_t* page) {
+  const Theme& t = theme();
+  header(page, setup.c_str(), soundsPage);
+  lv_obj_t* body = scroller(page);
+  lv_obj_set_style_pad_row(body, 4, 0);
+  struct stat st;
+  bool has = !stat(sounds::setupFile(setup, speaks.app).c_str(), &st);
+  char s[96];
+  if (has) {
+    snprintf(s, sizeof s, "%s's song, %u KB", speaks.app, (unsigned)((st.st_size + 1023) / 1024));
+  } else {
+    snprintf(s, sizeof s, "Nothing in it for %s.", speaks.app);
+  }
+  label(body, s, &lv_font_montserrat_14, has ? t.text : t.knob[0]);
+  lv_obj_t* row = box(body, LV_FLEX_FLOW_ROW);
+  lv_obj_set_style_pad_top(row, 6, 0);
+  if (jobs::running) {
+    status = label(row, jobs::status().c_str(), &lv_font_montserrat_14, t.accent);
+  } else {
+    status = 0;
+    lv_obj_t* b = button(row, (std::string("Load into ") + speaks.app).c_str(), loadTapped);
+    if (!has) {
+      lv_obj_add_state(b, LV_STATE_DISABLED);
+    }
+  }
+  lv_obj_t* l = label(body, "It replaces the song on the FM-1, and saves it there. Stop it playing first.",
+                      &lv_font_montserrat_12, t.dim);
+  lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(l, LV_PCT(100));
+  tick = syxTick;
+  jobDone = loaded;
+}
+
 // -------------------------------------------------------------------------------------------- page ---
 static void openFile(lv_event_t* e) {
   sel = *(std::string*)lv_event_get_user_data(e);
@@ -179,6 +236,19 @@ static void cancelTapped(lv_event_t*) {
   go(soundsPage);
 }
 
+static void openSetup(lv_event_t* e) {
+  setup = *(std::string*)lv_event_get_user_data(e);
+  sure = false;
+  go(setupPage);
+}
+
+static void keepTapped(lv_event_t*) {
+  if (!jobs::keep(dev)) {
+    toast("Busy: try again in a moment.", true);
+  }
+  go(soundsPage);
+}
+
 static void voiceTapped(lv_event_t*) {
   if (!jobs::voice(dev)) {
     toast("Busy: try again in a moment.", true);
@@ -194,6 +264,8 @@ static void soundsDone() {
     }
   } else if (jobs::kind == jobs::VOICE) {
     toast(jobs::ok ? ("Saved as " SYX_DIR "/" + jobs::saved + ".").c_str() : jobs::error.c_str(), !jobs::ok);
+  } else if (jobs::kind == jobs::KEEP) {
+    toast(jobs::ok ? ("Saved as " SETUPS_DIR "/" + jobs::saved + ".").c_str() : jobs::error.c_str(), !jobs::ok);
   }
   go(soundsPage);
 }
@@ -274,6 +346,9 @@ void ui::soundsPage(lv_obj_t* page) {
       asking = true;
       label(chips, "Asking what it speaks...", &lv_font_montserrat_12, t.dim);
     } else {
+      if (speaks.share) {
+        chip(chips, (std::string(speaks.app) + " " + speaks.appVersion).c_str(), t.knob[0]);
+      }
       if (speaks.stockVoice) {
         chip(chips, "M-VAVE voice", t.knob[2]);
       }
@@ -283,7 +358,7 @@ void ui::soundsPage(lv_obj_t* page) {
       if (speaks.open) {
         chip(chips, "M-VAVE Open", t.knob[1]);
       }
-      if (!speaks.stockVoice && !speaks.felucca && !speaks.open) {
+      if (!speaks.share && !speaks.stockVoice && !speaks.felucca && !speaks.open) {
         label(chips, "SysEx only", &lv_font_montserrat_12, t.dim);
       }
     }
@@ -300,6 +375,11 @@ void ui::soundsPage(lv_obj_t* page) {
       if (jobs::running) {
         lv_obj_add_state(b, LV_STATE_DISABLED);
       }
+    } else if (asked && speaks.share) {
+      lv_obj_t* b = button(row, "Save its song", keepTapped);
+      if (jobs::running) {
+        lv_obj_add_state(b, LV_STATE_DISABLED);
+      }
     }
     const char* about = recording ? "" : "Record keeps whatever SysEx it sends (start a dump from its menu), as a .syx.";
     recLabel = label(body, about, &lv_font_montserrat_12, recording ? t.accent : t.dim);
@@ -307,6 +387,32 @@ void ui::soundsPage(lv_obj_t* page) {
     lv_obj_set_width(recLabel, LV_PCT(100));
     status = label(body, jobs::running ? jobs::status().c_str() : "", &lv_font_montserrat_12, t.accent);
     lv_obj_update_flag(status, LV_OBJ_FLAG_HIDDEN, !jobs::running);
+  }
+
+  // its setups
+  static std::vector<std::string> setups;
+  setups.clear();
+  if (n && probedSerial == devSerial && speaks.share) {
+    lv_obj_t* h = label(body, "Setups (" SETUPS_DIR ")", &lv_font_montserrat_14, t.text);
+    lv_obj_set_style_pad_top(h, 6, 0);
+    struct stat st;
+    for (auto& name : sounds::setups()) {
+      if (!stat(sounds::setupFile(name, speaks.app).c_str(), &st)) {
+        setups.push_back(name);
+      }
+    }
+    for (auto& name : setups) {
+      lv_obj_t* r = listRow(body, openSetup, &name);
+      lv_obj_t* l = line(r, name.c_str(), &lv_font_montserrat_16, t.text);
+      lv_obj_set_flex_grow(l, 1);
+      label(r, LV_SYMBOL_RIGHT, &lv_font_montserrat_12, t.dim);
+    }
+    if (setups.empty()) {
+      std::string none = std::string("None yet: Save its song keeps ") + speaks.app + "'s song here, to load back later.";
+      lv_obj_t* l = label(body, hal::sd() ? none.c_str() : "No SD card.", &lv_font_montserrat_12, t.dim);
+      lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
+      lv_obj_set_width(l, LV_PCT(100));
+    }
   }
 
   // the files

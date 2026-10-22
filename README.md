@@ -4,7 +4,8 @@ Switch the M-VAVE FM-1's firmware and play it from cheap USB and Bluetooth MIDI 
 on a ready-made [Freenove ESP32-S3 2.8" touch screen](https://store.freenove.com/products/fnk0104?variant=45040270213318)
 (FNK0104B): firmwares from its SD card or the [FM-1 Firmware Hub](https://thefirmwarehub.com) over Wi-Fi, installed
 on the FM-1 through a USB hub, with up to 4 USB MIDI devices and Bluetooth MIDI playing each other. Sounds (.syx) go
-between the FM-1 and the SD card too.
+between the FM-1 and the SD card too, and so do
+[fomajam](https://github.com/konsumer/fomajam)'s songs: keep one setup per song, and load it before you play.
 
 **Install it, and how to set it up:** <https://konsumer.github.io/fm1buddy/>
 

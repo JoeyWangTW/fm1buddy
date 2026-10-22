@@ -1,5 +1,6 @@
 #include "sounds.h"
 
+#include <ctype.h>
 #include <dirent.h>
 #include <stdlib.h>
 #include <string.h>
@@ -234,10 +235,238 @@ const char* sounds::readVoice(int d, std::vector<uint8_t>& syx) {
   return 0;
 }
 
+// --------------------------------------------------------------------------------------- sharing ---
+// foma's (platform/src/share.c in fomajam), in M-VAVE's frames: each asked and answered with the same command.
+// Numbers are little-endian
+#define SHARE_INFO 0x50   // -> 01, size u32, chunk u16, name[16], version[8]
+#define SHARE_READ 0x51   // off u32, len u16 -> off u32, len u16, the bytes
+#define SHARE_WRITE 0x52  // off u32, total u32, the bytes -> off u32, status
+#define SHARE_DONE 0x53   // total u32, crc16 u16 -> status
+#define SHARE_CHUNK 512
+#define SHARE_FILE_MAX (64 * 1024)
+enum { SHARE_OK,
+       SHARE_BUSY,
+       SHARE_BAD,
+       SHARE_INCOMPLETE,
+       SHARE_FAILED };
+
+static void wr16(uint8_t* p, uint32_t v) {
+  p[0] = v & 0xFF;
+  p[1] = (v >> 8) & 0xFF;
+}
+static void wr32(uint8_t* p, uint32_t v) {
+  wr16(p, v);
+  wr16(p + 2, v >> 16);
+}
+static uint32_t rd16(const uint8_t* p) {
+  return p[0] | p[1] << 8;
+}
+static uint32_t rd32(const uint8_t* p) {
+  return rd16(p) | rd16(p + 2) << 16;
+}
+
+// the firmware's (ota.c's): poly 0x1021, from 0
+static uint32_t crc16(const uint8_t* p, uint32_t n) {
+  uint32_t c = 0;
+  while (n--) {
+    c ^= (uint32_t)*p++ << 8;
+    for (int i = 0; i < 8; i++) {
+      c = c & 0x8000 ? (c << 1) ^ 0x1021 : c << 1;
+    }
+    c &= 0xFFFF;
+  }
+  return c;
+}
+
+// cmd with its body to device d, up to tries times; the reply's body (into out, up to max) that good() takes, and its
+// length; -1 if none came
+template <typename F>
+static int shareAsk(int d, uint8_t cmd, const uint8_t* body, uint32_t n, uint8_t* out, uint32_t max, int tries,
+                    uint32_t ms, F good) {
+  std::vector<uint8_t> msg(2 + (n + 7) * 8 / 7 + 2), reply;
+  uint32_t k = fm1::frame(cmd, body, n, msg.data());
+  for (int t = 0; t < tries; t++) {
+    int len = -1;
+    auto match = [&](const uint8_t* m, uint32_t mn) {
+      len = fm1::unframe(m, mn, cmd, out, max);
+      return len >= 0 && good(out, (uint32_t)len);
+    };
+    if (ask(d, msg.data(), k, ms, match, reply)) {
+      return len;
+    }
+  }
+  return -1;
+}
+
+static bool shareInfo(int d, sounds::Speaks& out, int tries) {
+  uint8_t r[64];
+  int n = shareAsk(d, SHARE_INFO, 0, 0, r, sizeof r, tries, 800,
+                   [](const uint8_t* r, uint32_t n) { return n >= 31 && r[0] == 1; });
+  if (n < 0) {
+    return false;
+  }
+  out.share = true;
+  out.shareSize = rd32(r + 1);
+  memcpy(out.app, r + 7, 16);
+  out.app[16] = 0;
+  memcpy(out.appVersion, r + 23, 8);
+  out.appVersion[8] = 0;
+  return true;
+}
+
+// what the firmware's block is kept as: its name, lower case (fomajam.bin)
+static std::string blockName(const char* app) {
+  std::string n;
+  for (const char* c = app; *c; c++) {
+    n += isalnum((unsigned char)*c) ? (char)tolower((unsigned char)*c) : '-';
+  }
+  return (n.empty() ? "firmware" : n) + ".bin";
+}
+
+std::vector<std::string> sounds::setups() {
+  std::vector<std::string> out;
+  std::string dir = catalog::path(SETUPS_DIR);
+  DIR* d = dir.empty() ? 0 : opendir(dir.c_str());
+  if (!d) {
+    return out;
+  }
+  while (dirent* e = readdir(d)) {
+    struct stat st;
+    if (e->d_name[0] != '.' && !stat((dir + "/" + e->d_name).c_str(), &st) && S_ISDIR(st.st_mode)) {
+      out.push_back(e->d_name);
+    }
+  }
+  closedir(d);
+  std::sort(out.begin(), out.end(), [](const std::string& a, const std::string& b) { return strcasecmp(a.c_str(), b.c_str()) < 0; });
+  return out;
+}
+
+std::string sounds::setupFile(const std::string& setup, const char* app) {
+  std::string dir = catalog::path(SETUPS_DIR);
+  return dir.empty() ? "" : dir + "/" + setup + "/" + blockName(app);
+}
+
+const char* sounds::keep(int d, std::string& setup, void (*progress)(uint32_t, uint32_t)) {
+  Speaks s = {};
+  if (!shareInfo(d, s, 3)) {
+    return "It didn't answer.";
+  }
+  if (!s.shareSize || s.shareSize > SHARE_FILE_MAX) {
+    return "It has nothing to share.";
+  }
+  std::vector<uint8_t> data(s.shareSize);
+  uint8_t q[6], r[6 + SHARE_CHUNK];
+  for (uint32_t off = 0; off < data.size(); off += SHARE_CHUNK) {
+    uint32_t want = std::min<uint32_t>(SHARE_CHUNK, data.size() - off);
+    wr32(q, off);
+    wr16(q + 4, want);
+    int n = shareAsk(d, SHARE_READ, q, sizeof q, r, sizeof r, 3, 1000, [&](const uint8_t* r, uint32_t n) {
+      return n == 6 + want && rd32(r) == off && rd16(r + 4) == want;
+    });
+    if (n < 0) {
+      return "It stopped answering.";
+    }
+    memcpy(data.data() + off, r + 6, want);
+    if (progress) {
+      progress(off + want, data.size());
+    }
+  }
+  std::string dir = catalog::path(SETUPS_DIR);
+  if (dir.empty()) {
+    return "No SD card.";
+  }
+  mkdir(dir.c_str(), 0777);
+  struct stat st;
+  for (int n = 1; n < 1000; n++) {
+    setup = "setup-" + std::to_string(n);
+    if (stat((dir + "/" + setup).c_str(), &st)) {
+      break;
+    }
+  }
+  std::string p = setupFile(setup, s.app);
+  mkdir((dir + "/" + setup).c_str(), 0777);
+  FILE* f = fopen(p.c_str(), "wb");
+  bool ok = f && fwrite(data.data(), 1, data.size(), f) == data.size();
+  ok &= f && !fclose(f);
+  if (!ok) {
+    remove(p.c_str());
+    return "Can't write it to the SD card.";
+  }
+  return 0;
+}
+
+static const char* shareError(int status) {
+  switch (status) {
+    case SHARE_BUSY:
+      return "It's playing: stop it, then load again.";
+    case SHARE_BAD:
+      return "It didn't take it: it isn't something this version knows.";
+    case SHARE_INCOMPLETE:
+      return "Not all of it got there: try again.";
+    case SHARE_FAILED:
+      return "It took it, but couldn't save it.";
+  }
+  return "It said no.";
+}
+
+const char* sounds::restore(int d, const std::string& setup, void (*progress)(uint32_t, uint32_t)) {
+  Speaks s = {};
+  if (!shareInfo(d, s, 3)) {
+    return "It didn't answer.";
+  }
+  std::vector<uint8_t> data;
+  FILE* f = fopen(setupFile(setup, s.app).c_str(), "rb");
+  if (!f) {
+    return "This setup has nothing for the firmware it has now.";
+  }
+  fseek(f, 0, SEEK_END);
+  long size = ftell(f);
+  fseek(f, 0, SEEK_SET);
+  bool ok = size > 0 && size <= SHARE_FILE_MAX;
+  if (ok) {
+    data.resize(size);
+    ok = fread(data.data(), 1, size, f) == (size_t)size;
+  }
+  fclose(f);
+  if (!ok) {
+    return "Can't read it from the SD card.";
+  }
+  uint8_t q[8 + SHARE_CHUNK], r[16];
+  for (uint32_t off = 0; off < data.size(); off += SHARE_CHUNK) {
+    uint32_t k = std::min<uint32_t>(SHARE_CHUNK, data.size() - off);
+    wr32(q, off);
+    wr32(q + 4, data.size());
+    memcpy(q + 8, data.data() + off, k);
+    int n = shareAsk(d, SHARE_WRITE, q, 8 + k, r, sizeof r, 3, 1000,
+                     [&](const uint8_t* r, uint32_t n) { return n == 5 && rd32(r) == off; });
+    if (n < 0) {
+      return "It stopped answering.";
+    }
+    if (r[4] != SHARE_OK) {
+      return shareError(r[4]);
+    }
+    if (progress) {
+      progress(off + k, data.size());
+    }
+  }
+  // once: it starts over after DONE, whatever it said (and saving takes it a moment)
+  wr32(q, data.size());
+  wr16(q + 4, crc16(data.data(), data.size()));
+  int n = shareAsk(d, SHARE_DONE, q, 6, r, sizeof r, 1, 3000, [](const uint8_t*, uint32_t n) { return n == 1; });
+  if (n < 0) {
+    return "It didn't say if it took it.";
+  }
+  return r[0] == SHARE_OK ? 0 : shareError(r[0]);
+}
+
 void sounds::probe(int d, Speaks& out) {
   memset(&out, 0, sizeof out);
   if (!fm1::candidate(d)) {
     return;  // never other gear
+  }
+  if (shareInfo(d, out, 1)) {
+    hal::log("sounds: %d: shares, %s %s, %u bytes", d, out.app, out.appVersion, (unsigned)out.shareSize);
+    return;  // a foma firmware: none of the rest
   }
   std::vector<uint8_t> reply;
   out.stockVoice = !readVoice(d, reply);

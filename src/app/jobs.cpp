@@ -15,6 +15,7 @@
 namespace jobs {
 std::atomic<int> kind{NONE}, step{IDLE};
 std::atomic<bool> running{false};
+std::atomic<uint32_t> finished{0};
 std::atomic<uint32_t> done{0}, total{0};
 bool ok;
 std::string error;
@@ -29,14 +30,14 @@ std::string saved;
 using namespace jobs;
 
 static Firmware target;
-static std::string ssid, pass, syxFile;
+static std::string ssid, pass, syxFile, setupName;
 
 static void progress(uint32_t d, uint32_t t) {
   done = d;
   total = t;
 }
 
-static const char* NAMES[] = {"none", "hub", "download", "scan", "join", "install", "probe", "send", "voice"};
+static const char* NAMES[] = {"none", "hub", "download", "scan", "join", "install", "probe", "send", "voice", "keep", "restore"};
 
 static bool start(Kind k, void (*fn)(void*)) {
   if (running) {
@@ -60,6 +61,7 @@ static void finish(bool good) {
   ok = good;
   step = IDLE;
   running = false;
+  finished++;
 }
 
 static bool joinSaved() {
@@ -302,6 +304,43 @@ static void voiceJob(void*) {
   finish(!saved.empty());
 }
 
+static void keepJob(void*) {
+  step = GETTING;
+  total = 0;
+  if (const char* e = sounds::keep(device, saved, progress)) {
+    error = e;
+    return finish(false);
+  }
+  finish(true);
+}
+
+static void restoreJob(void*) {
+  step = SENDING;
+  total = 0;
+  if (const char* e = sounds::restore(device, setupName, progress)) {
+    error = e;
+    return finish(false);
+  }
+  finish(true);
+}
+
+bool jobs::keep(int d) {
+  if (running) {
+    return false;
+  }
+  device = d;
+  return start(KEEP, keepJob);
+}
+
+bool jobs::restore(int d, const std::string& setup) {
+  if (running) {
+    return false;
+  }
+  device = d;
+  setupName = setup;
+  return start(RESTORE, restoreJob);
+}
+
 bool jobs::probe(int d) {
   if (running) {
     return false;
@@ -377,6 +416,10 @@ std::string jobs::status() {
     }
     case ASKING_IT:
       return "Asking it...";
+    case GETTING: {
+      uint32_t t = total, d = done;
+      return "Getting it " + std::to_string(t ? (unsigned long long)d * 100 / t : 0) + "%...";
+    }
   }
   return kind == SCAN && running ? "Looking for networks..." : "";
 }

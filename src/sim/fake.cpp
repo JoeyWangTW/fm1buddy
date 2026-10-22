@@ -2,6 +2,7 @@
 
 #include <string.h>
 
+#include <algorithm>
 #include <chrono>
 #include <string>
 #include <thread>
@@ -36,6 +37,10 @@ static struct {
   bool faults, unplugged;
   std::vector<uint8_t> flash;
   std::vector<bool> got;
+  // fomajam: its song (a version 9 one is 11914 bytes, starting with 9 and the tempo), and one coming in
+  bool fomajam, playing;
+  std::vector<uint8_t> song, in;
+  uint32_t inTotal, inGot;
 } f;
 
 static uint32_t rnd() {
@@ -251,13 +256,102 @@ void fake::dump() {
   sendDx7(HEAD, bank, sizeof bank);
 }
 
+// ----------------------------------------------------------------------------------------- fomajam ---
+// its sharing (fomajam's platform/src/share.c), written again from what it says: 1 if b was one of its frames
+#define SONG_SIZE 11914
+static bool share(const uint8_t* b, uint32_t n) {
+  static uint8_t q[1024], r[1024], w[1300];
+  auto rd16 = [](const uint8_t* p) { return (uint32_t)(p[0] | p[1] << 8); };
+  auto rd32 = [&](const uint8_t* p) { return rd16(p) | rd16(p + 2) << 16; };
+  auto wr32 = [](uint8_t* p, uint32_t v) {
+    for (int i = 0; i < 4; i++) {
+      p[i] = (v >> (8 * i)) & 0xFF;
+    }
+  };
+  auto reply = [&](uint8_t cmd, uint32_t len) { sendSysex(FM1, w, fm1::frame(cmd, r, len, w)); };
+  for (uint8_t cmd = 0x50; cmd <= 0x53; cmd++) {
+    int k = fm1::unframe(b, n, cmd, q, sizeof q);
+    if (k < 0) {
+      continue;
+    }
+    if (chance(3)) {
+      return true;  // lost on the way: fm1buddy asks again
+    }
+    if (cmd == 0x50) {
+      memset(r, 0, 31);
+      r[0] = 1;
+      wr32(r + 1, f.song.size());
+      r[5] = 0, r[6] = 2;  // 512
+      memcpy(r + 7, "FOMAJAM", 7);
+      memcpy(r + 23, "0.1", 3);
+      reply(cmd, 31);
+    } else if (cmd == 0x51 && k == 6) {
+      uint32_t off = rd32(q), len = rd16(q + 4);
+      len = off >= f.song.size() ? 0 : std::min<uint32_t>(std::min<uint32_t>(len, 512), f.song.size() - off);
+      memcpy(r, q, 4);
+      r[4] = len & 0xFF, r[5] = len >> 8;
+      memcpy(r + 6, f.song.data() + off, len);
+      reply(cmd, 6 + len);
+    } else if (cmd == 0x52 && k >= 8) {
+      uint32_t off = rd32(q), total = rd32(q + 4), len = k - 8;
+      if (!off) {
+        f.inTotal = total, f.inGot = 0;
+        f.in.assign(total, 0);
+      }
+      uint8_t st = 0;
+      if (total > 12276 || len > 512) {
+        st = 2;
+      } else if (total != f.inTotal || off > f.inGot || off + len > total) {
+        st = 3;
+      } else {
+        memcpy(f.in.data() + off, q + 8, len);
+        f.inGot = std::max(f.inGot, off + len);
+      }
+      memcpy(r, q, 4);
+      r[4] = st;
+      reply(cmd, 5);
+    } else if (cmd == 0x53 && k == 6) {
+      uint32_t total = rd32(q), c = 0;
+      for (uint32_t i = 0; i < f.inGot && i < f.in.size(); i++) {
+        c ^= (uint32_t)f.in[i] << 8;
+        for (int j = 0; j < 8; j++) {
+          c = c & 0x8000 ? (c << 1) ^ 0x1021 : c << 1;
+        }
+        c &= 0xFFFF;
+      }
+      uint8_t st = total != f.inTotal || f.inGot != total || c != rd16(q + 4) ? 3
+                   : f.playing                                                ? 1
+                   : total != SONG_SIZE || f.in[0] != 9                       ? 2
+                                                                              : 0;
+      if (!st) {
+        f.song = f.in;
+        hal::log("fake fomajam: song loaded (tempo %d)", f.song[1]);
+      } else {
+        hal::log("fake fomajam: song not loaded (%d)", st);
+      }
+      f.inTotal = f.inGot = 0;
+      r[0] = st;
+      reply(cmd, 1);
+    }
+    return true;
+  }
+  return false;
+}
+
+void fake::play() {
+  f.playing = !f.playing;
+  hal::log("fake fomajam: %s", f.playing ? "playing" : "stopped");
+}
+
 static void fromHost(const uint8_t* b, uint32_t n) {
   static const uint8_t HS[] = {0xF0, 0x00, 0x32, 0x45};
   static const uint8_t UPGRADE[] = {0xF0, 0x22, 0x24, 0x35, 0x7F, 0xF7};
   uint8_t req[16];
-  if (n >= 4 && !memcmp(b, HS, 4)) {
+  if (n == 10 && !memcmp(b, HS, 4)) {  // (cmd 0x51's frames start the same way)
     identity();
-  } else if (f.state == decltype(f.state)::RUN && fm1::unframe(b, n, 0x23, req, sizeof req) == 8 && req[0] == 5) {
+  } else if (f.state == decltype(f.state)::RUN && f.fomajam && share(b, n)) {
+  } else if (f.state == decltype(f.state)::RUN && !f.fomajam && fm1::unframe(b, n, 0x23, req, sizeof req) == 8 &&
+             req[0] == 5) {
     // the stock firmware's read: its current voice
     uint8_t reply[8 + 155], wire[256];
     memcpy(reply, req, 8);
@@ -405,7 +499,7 @@ bool hal::bleChanged() {
 // ---------------------------------------------------------------------------------------------- run ---
 static void run(bool fm1, bool keys) {
   if (fm1) {
-    f.ident = "FM-1_015";
+    f.ident = f.fomajam ? "FM-1_961" : "FM-1_015";
     f.next = decltype(f.state)::RUN;
     f.mountAt = hal::millis() + 500;
   }
@@ -419,7 +513,10 @@ static void run(bool fm1, bool keys) {
     if (f.state == decltype(f.state)::GONE && f.mountAt && (int32_t)(now - f.mountAt) >= 0) {
       f.mountAt = 0;
       f.state = (decltype(f.state))f.next;
-      midi::mount(FM1, 0x1209, 0x0001, f.state == decltype(f.state)::LOADER ? "ota-FM-1" : "FM-1");
+      midi::mount(FM1, 0x1209, 0x0001,
+                  f.state == decltype(f.state)::LOADER ? "ota-FM-1"
+                  : f.fomajam                          ? "Felucca"
+                                                       : "FM-1");
     }
     if (f.waiting && now - f.askedAt > 1000) {
       hal::log("fake fm-1: no answer: asking again");
@@ -440,7 +537,13 @@ static void run(bool fm1, bool keys) {
   }
 }
 
-void fake::begin(bool fm1, bool keys, bool faults) {
+void fake::begin(bool fm1, bool keys, bool faults, bool fomajam) {
   f.faults = faults;
+  f.fomajam = fomajam;
+  f.song.assign(SONG_SIZE, 0);
+  f.song[0] = 9, f.song[1] = 120;  // version 9, 120 BPM
+  for (uint32_t i = 2; i < f.song.size(); i++) {
+    f.song[i] = (uint8_t)(i * 7 + i / 300);
+  }
   std::thread(run, fm1, keys).detach();
 }
