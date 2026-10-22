@@ -1,14 +1,16 @@
 // The app on the desktop: an SDL window twice the screen's size, the mouse for touch.
 //
-//   program [--headless] [--zoom N] [--fm1] [--faults] [--keys] [--install FILE]
+//   program [--headless] [--zoom N] [--fm1] [--fomajam] [--faults] [--keys] [--install FILE]
 //           [--script "tap 24 70; wait 300; shot a.bmp; quit"]
 //
-// --fm1 puts a pretend FM-1 on the hub (it goes through a whole install), --faults makes it and its USB misbehave,
-// --keys adds a keyboard that plays now and then. --install FILE installs /fm1/FILE on the pretend FM-1, again (as a
-// person would) if it doesn't finish, up to 3 times, then quits: 0 if it's installed, 1 if not.
+// --fm1 puts a pretend FM-1 on the hub (it goes through a whole install), --fomajam makes it one running fomajam (it
+// shares its song), --faults makes it and its USB misbehave, --keys adds a keyboard that plays now and then.
+// --install FILE installs /fm1/FILE on the pretend FM-1, again (as a person would) if it doesn't finish, up to 3
+// times, then quits: 0 if it's installed, 1 if not.
 //
 // The script runs after start: tap X Y (screen pixels), drag X1 Y1 X2 Y2, wait MS, shot FILE (a .bmp of the
-// screen), dump (the pretend FM-1 sends a DX7 bank), quit. The SD card is the folder in FM1_SD (default: sim/sd).
+// screen), dump (the pretend FM-1 sends a DX7 bank), play (fomajam starts or stops), quit. The SD card is the
+// folder in FM1_SD (default: sim/sd).
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
 #include <lvgl.h>
@@ -101,7 +103,7 @@ static void pump(int ms) {
 }
 
 int main(int argc, char** argv) {
-  bool headless = false, fm1 = false, keys = false, faults = false;
+  bool headless = false, fm1 = false, keys = false, faults = false, fomajam = false;
   int zoom = 2;
   std::string script, install;
   for (int i = 1; i < argc; i++) {
@@ -109,6 +111,8 @@ int main(int argc, char** argv) {
       headless = true;
     } else if (!strcmp(argv[i], "--fm1")) {
       fm1 = true;
+    } else if (!strcmp(argv[i], "--fomajam")) {
+      fm1 = fomajam = true;
     } else if (!strcmp(argv[i], "--faults")) {
       faults = true;
     } else if (!strcmp(argv[i], "--install") && i + 1 < argc) {
@@ -134,7 +138,7 @@ int main(int argc, char** argv) {
   lv_indev_set_read_cb(in, readPointer);
 
   ui::begin();
-  fake::begin(fm1, keys, faults);
+  fake::begin(fm1, keys, faults, fomajam);
 
   SDL_Window* win = 0;
   SDL_Renderer* ren = 0;
@@ -210,6 +214,8 @@ int main(int argc, char** argv) {
         shot(path.c_str());
       } else if (cmd == "dump") {
         fake::dump();
+      } else if (cmd == "play") {
+        fake::play();
       } else if (cmd == "quit") {
         run = false;
       }

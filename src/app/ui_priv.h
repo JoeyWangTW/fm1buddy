@@ -56,7 +56,8 @@ lv_obj_t* chip(lv_obj_t* parent, const char* text, uint32_t color);
 void firmwarePage(lv_obj_t* page);
 void midiPage(lv_obj_t* page);
 void soundsPage(lv_obj_t* page);
-void syxPage(lv_obj_t* page);  // a .syx
+void syxPage(lv_obj_t* page);    // a .syx
+void setupPage(lv_obj_t* page);  // a setup
 void settingsPage(lv_obj_t* page);
 void wifiPage(lv_obj_t* page);
 }  // namespace ui

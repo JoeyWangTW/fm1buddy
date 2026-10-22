@@ -4,7 +4,10 @@ Switch the M-VAVE FM-1's firmware and play it from cheap USB and Bluetooth MIDI 
 on a ready-made [Freenove ESP32-S3 2.8" touch screen](https://store.freenove.com/products/fnk0104?variant=45040270213318)
 (FNK0104B): firmwares from its SD card or the [FM-1 Firmware Hub](https://thefirmwarehub.com) over Wi-Fi, installed
 on the FM-1 through a USB hub, with up to 4 USB MIDI devices and Bluetooth MIDI playing each other. Sounds (.syx) go
-between the FM-1 and the SD card too.
+between the FM-1 and the SD card too, and so do
+[fomajam](https://github.com/konsumer/fomajam)'s songs and its kits (drum machines of your own, from folders of
+.wav files): keep one setup per song, and load it before you play. A setup's patterns also export as MIDI files, and its
+kits as .wav files, for other gear.
 
 **Install it, and how to set it up:** <https://konsumer.github.io/fm1buddy/>
 
@@ -53,7 +56,8 @@ last 10 are kept): send one along with a report of an install gone wrong.
 logged on the hub, also in `fm1buddy/log.txt` on its SD card), and `host` (the USB host for 20 s).
 
 ```
-src/app/   the app (LVGL 9): pages, the Hub's list, MIDI between devices, the FM-1's update protocol, sounds (SysEx);
+src/app/   the app (LVGL 9): pages, the Hub's list, MIDI between devices, the FM-1's update protocol, sounds (SysEx),
+           setups and fomajam's kits and MIDI files (sounds, kits, songmidi);
            hal.h is what it needs from the board
 src/s3/    the board: screen, touch, SD, Wi-Fi, USB host (TinyUSB), Bluetooth MIDI (NimBLE)
 src/sim/   the simulator

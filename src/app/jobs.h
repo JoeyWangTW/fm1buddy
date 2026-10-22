@@ -19,7 +19,10 @@ enum Kind { NONE,
             INSTALL,   // a firmware on the FM-1 (downloaded first, from the Hub, if it isn't on the SD card)
             PROBE,     // what a device's firmware speaks (sounds.h)
             SEND,      // a .syx to a device
-            VOICE };   // the stock firmware's current voice to the SD card
+            VOICE,     // the stock firmware's current voice to the SD card
+            KEEP,      // what a firmware shares (fomajam's song) into a new setup
+            RESTORE,   // a setup back to it
+            EXPORT };  // a setup's patterns as MIDI files, its kits as .wav files
 enum Step { IDLE,
             JOINING,
             FETCHING,
@@ -31,10 +34,13 @@ enum Step { IDLE,
             WRITING,    // the loader reads it all, and writes it
             RESTARTING,
             SENDING,
-            ASKING_IT };
+            ASKING_IT,
+            GETTING,          // KEEP
+            WRITING_FILES };  // EXPORT
 
 extern std::atomic<int> kind, step;
 extern std::atomic<bool> running;
+extern std::atomic<uint32_t> finished;     // counts the jobs that have ended
 extern std::atomic<uint32_t> done, total;  // bytes, while FETCHING and WRITING
 // once it has finished
 extern bool ok;
@@ -42,9 +48,9 @@ extern std::string error;
 extern std::vector<hal::Ap> aps;   // SCAN
 extern std::vector<Firmware> hub;  // HUB: the new list
 extern std::string hubUpdated;
-extern int device;             // PROBE, SEND, VOICE: the device
+extern int device;             // PROBE, SEND, VOICE, KEEP, RESTORE: the device
 extern sounds::Speaks speaks;  // PROBE
-extern std::string saved;      // VOICE: the file it went into
+extern std::string saved;      // VOICE: the file it went into; KEEP: the setup; EXPORT: what it did
 
 bool hubList();
 bool download(const Firmware& f);
@@ -54,6 +60,9 @@ bool install(const Firmware& f);
 bool probe(int d);
 bool send(int d, const std::string& file);  // in /syx
 bool voice(int d);
+bool keep(int d);
+bool restore(int d, const std::string& setup);  // in /setups
+bool exportSetup(const std::string& setup, const char* app);
 // "Joining Wi-Fi", "Downloading 40%", "Writing 12%", ...
 std::string status();
 }  // namespace jobs

@@ -19,7 +19,7 @@ using namespace ui;
 static lv_obj_t *rail, *pageObj, *tabs[TABS], *stSd, *stWifi, *stBt, *stFm1;
 static Tab tab = FIRMWARE;
 static Builder current = firmwarePage;
-static bool wasRunning;
+static uint32_t seenFinished;  // jobs::finished, as last seen
 
 const Theme& ui::theme() {
   return THEMES[settings.theme];
@@ -371,7 +371,8 @@ static void logCounts() {
 }
 
 static void watch(lv_timer_t*) {
-  if (wasRunning && !jobs::running) {
+  if (seenFinished != jobs::finished) {  // (a quick one may start and end between two looks)
+    seenFinished = jobs::finished;
     if (jobs::ok && jobs::kind == jobs::HUB) {
       catalog::hub.swap(jobs::hub);
       std::vector<Firmware>().swap(jobs::hub);  // the old list
@@ -384,7 +385,6 @@ static void watch(lv_timer_t*) {
       jobDone();
     }
   }
-  wasRunning = jobs::running;
   fm1::watch();
   logCounts();
   if (tick) {

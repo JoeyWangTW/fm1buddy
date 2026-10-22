@@ -8,6 +8,7 @@
 
 #include <chrono>
 #include <thread>
+#include <vector>
 
 #include "hal.h"
 #include "midi.h"
@@ -175,11 +176,13 @@ static bool respond(int d, uint32_t addr, const uint8_t* data, uint32_t len, uin
   return midi::sendWait(d, wire, w, 1000);
 }
 
+// (each call its own buffer: a job and the UI may both be at it)
 uint32_t fm1::frame(uint8_t cmd, const uint8_t* payload, uint32_t n, uint8_t* out) {
-  static uint8_t body[7 + 1024];
   if (n > 1024) {
     return 0;
   }
+  std::vector<uint8_t> buf(7 + n);
+  uint8_t* body = buf.data();
   uint32_t k = 0, sum = 0;
   body[k++] = 0x00;
   body[k++] = 0x59;
@@ -200,12 +203,13 @@ uint32_t fm1::frame(uint8_t cmd, const uint8_t* payload, uint32_t n, uint8_t* ou
 }
 
 int fm1::unframe(const uint8_t* pkt, uint32_t n, uint8_t cmd, uint8_t* out, uint32_t max) {
-  static uint8_t body[7 + 1024];
-  if (n < 10 || pkt[0] != 0xF0 || pkt[n - 1] != 0xF7) {
+  if (n < 10 || n > 2 + (7 + 1024) * 8 / 7 + 1 || pkt[0] != 0xF0 || pkt[n - 1] != 0xF7) {
     return -1;
   }
-  uint32_t k = unpack7(pkt + 1, n - 2, body, sizeof body);
-  if (k < 7 || k > sizeof body || body[0] || body[1] != 0x59 || body[2] != cmd) {
+  std::vector<uint8_t> buf(7 + 1024);
+  uint8_t* body = buf.data();
+  uint32_t k = unpack7(pkt + 1, n - 2, body, buf.size());
+  if (k < 7 || k > buf.size() || body[0] || body[1] != 0x59 || body[2] != cmd) {
     return -1;
   }
   uint32_t len = body[3] | body[4] << 8 | body[5] << 16, sum = 0;
