@@ -1,5 +1,7 @@
 // MIDI: what is plugged into the hub (everything any of them plays goes to all the others), and Bluetooth MIDI (off
 // until it's turned on here; then on after power-on too)
+#include <stdio.h>
+
 #include "fm1.h"
 #include "hal.h"
 #include "midi.h"
@@ -9,7 +11,19 @@ using namespace ui;
 
 static uint32_t shownSeq;
 static lv_obj_t *dots[MIDI_DEVS], *lasts[MIDI_DEVS];
-static uint32_t counts[MIDI_DEVS];
+static uint32_t counts[MIDI_DEVS], shownDropped;
+static lv_obj_t* dropLabel;
+
+// "note C4  vel 100  ch 1   (20)": the last message, and how many it has sent
+static void lastText(const midi::Dev& v, char* s, int n) {
+  if (!v.count) {
+    snprintf(s, n, "nothing yet");
+    return;
+  }
+  char m[40];
+  midi::describe(v.last, m, sizeof m);
+  snprintf(s, n, "%s   (%u)", m, (unsigned)v.count);
+}
 
 static void toggleBt(lv_event_t* e) {
   bool on = lv_obj_has_state((lv_obj_t*)lv_event_get_target(e), LV_STATE_CHECKED);
@@ -38,10 +52,15 @@ static void live() {
     lv_obj_set_style_text_color(dots[d], color(v.lastIn && now - v.lastIn < 150 ? t.accent : t.off), 0);
     if (v.count != counts[d]) {
       counts[d] = v.count;
-      char s[40];
-      midi::describe(v.last, s, sizeof s);
+      char s[56];
+      lastText(v, s, sizeof s);
       lv_label_set_text(lasts[d], s);
     }
+  }
+  if (dropLabel && midi::dropped != shownDropped) {
+    shownDropped = midi::dropped;
+    lv_label_set_text_fmt(dropLabel, "%u messages dropped (a device too slow to take them)", (unsigned)shownDropped);
+    lv_obj_remove_flag(dropLabel, LV_OBJ_FLAG_HIDDEN);
   }
 }
 
@@ -72,10 +91,8 @@ void ui::midiPage(lv_obj_t* page) {
     }
     lv_obj_t* l = line(col, name.c_str(), &lv_font_montserrat_16, id ? t.accent : t.text);
     lv_obj_set_width(l, LV_PCT(100));
-    char s[40] = "nothing yet";
-    if (v.count) {
-      midi::describe(v.last, s, sizeof s);
-    }
+    char s[56];
+    lastText(v, s, sizeof s);
     lasts[d] = line(col, s, &lv_font_montserrat_12, t.dim);
     lv_obj_set_width(lasts[d], LV_PCT(100));
   }
@@ -89,6 +106,14 @@ void ui::midiPage(lv_obj_t* page) {
     lv_obj_set_style_pad_ver(none, 6, 0);
   } else if (!midi::thru) {
     label(body, "Installing: MIDI waits until it's done.", &lv_font_montserrat_12, t.knob[1]);
+  }
+  shownDropped = midi::dropped;
+  dropLabel = line(body, "", &lv_font_montserrat_12, t.knob[0]);
+  lv_obj_set_width(dropLabel, LV_PCT(100));
+  if (shownDropped) {
+    lv_label_set_text_fmt(dropLabel, "%u messages dropped (a device too slow to take them)", (unsigned)shownDropped);
+  } else {
+    lv_obj_add_flag(dropLabel, LV_OBJ_FLAG_HIDDEN);
   }
 
   lv_obj_t* r = listRow(body, 0, 0);

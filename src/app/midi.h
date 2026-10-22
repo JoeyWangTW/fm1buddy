@@ -22,8 +22,9 @@ struct Dev {
   uint32_t count;   // messages it sent
 };
 
-extern std::atomic<bool> thru;     // everything to everything
-extern std::atomic<uint32_t> seq;  // goes up when a device comes or goes
+extern std::atomic<bool> thru;         // everything to everything
+extern std::atomic<uint32_t> seq;      // goes up when a device comes or goes
+extern std::atomic<uint32_t> dropped;  // messages that didn't fit a device's queue (it doesn't take them fast enough)
 
 // a copy of device d: false if nothing is there
 bool dev(int d, Dev& out);

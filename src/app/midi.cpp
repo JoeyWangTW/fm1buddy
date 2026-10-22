@@ -13,6 +13,7 @@
 namespace midi {
 std::atomic<bool> thru{true};
 std::atomic<uint32_t> seq{0};
+std::atomic<uint32_t> dropped{0};
 }  // namespace midi
 
 using namespace midi;
@@ -78,6 +79,8 @@ static void push(Slot& s, const uint8_t p[4]) {
   if (s.ow - s.orr < OUT_N) {
     memcpy(s.out[s.ow % OUT_N], p, 4);
     s.ow++;
+  } else {
+    dropped++;
   }
 }
 
