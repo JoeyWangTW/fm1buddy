@@ -25,8 +25,8 @@ static uint32_t hostTestUntil;
 static volatile bool wifiUp, radio;
 
 void board::begin() {
-  // the app's lists and strings go to PSRAM: the internal RAM is for Wi-Fi (and soon USB and Bluetooth)
-  heap_caps_malloc_extmem_enable(256);
+  // (not heap_caps_malloc_extmem_enable(): small blocks must stay internal, the USB host's DMA can't reach PSRAM. The
+  // big ones go there anyway: LVGL's pool, MIDI's buffers, TLS's)
   // and TLS's buffers (about 40 KB a connection): with Bluetooth on, the internal RAM can't spare them
   mbedtls_platform_set_calloc_free(
       [](size_t n, size_t size) {
@@ -267,7 +267,7 @@ int hal::get(const char* url, const char* path, std::string* etag, void (*progre
       status = -1;
       break;
     }
-    static char* buf = (char*)malloc(4096);  // PSRAM
+    static char* buf = (char*)heap_caps_malloc(4096, MALLOC_CAP_SPIRAM);
     uint32_t got = 0;
     bool ok = true;
     for (;;) {
@@ -321,7 +321,7 @@ bool hal::sha256(const char* path, char hex[65]) {
   mbedtls_sha256_context ctx;
   mbedtls_sha256_init(&ctx);
   mbedtls_sha256_starts(&ctx, 0);
-  static uint8_t* buf = (uint8_t*)malloc(4096);  // PSRAM
+  static uint8_t* buf = (uint8_t*)heap_caps_malloc(4096, MALLOC_CAP_SPIRAM);
   for (size_t n; (n = fread(buf, 1, 4096, f));) {
     mbedtls_sha256_update(&ctx, buf, n);
   }

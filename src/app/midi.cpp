@@ -40,7 +40,7 @@ struct Slot {
   uint8_t qn[SYSEX_Q];
   uint32_t qw, qr;
 };
-// on the heap: in PSRAM, on the S3
+// on the heap (PSRAM, on the S3: big blocks go there)
 static Slot* slots = new Slot[MIDI_DEVS]();
 
 static void reset(Slot& s) {

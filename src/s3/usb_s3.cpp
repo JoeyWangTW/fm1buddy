@@ -39,6 +39,7 @@ static struct Dev {
 } dev[MIDI_USB];
 
 static uint8_t newAddr[8], nNew;  // devices that came, opened in the loop (not in the event callback)
+static bool seen[128];            // addresses already looked at (opened, or not MIDI)
 
 static void blink() {
 #ifdef LED_RGB
@@ -196,7 +197,13 @@ static void openDev(uint8_t addr) {
   }
   Dev& v = dev[i];
   memset(&v, 0, sizeof v);
-  if (usb_host_device_open(client, addr, &v.h) != ESP_OK) {
+  if (seen[addr & 127]) {
+    return;
+  }
+  seen[addr & 127] = true;
+  esp_err_t oe = usb_host_device_open(client, addr, &v.h);
+  if (oe != ESP_OK) {
+    hal::log("usb: device %u: can't open it (%s)", addr, esp_err_to_name(oe));
     return;
   }
   const usb_device_desc_t* dd;
@@ -208,8 +215,13 @@ static void openDev(uint8_t addr) {
     usb_host_device_close(client, v.h);
     return;
   }
+  char name[32];
+  ascii(info.str_desc_product, name, sizeof name);
+  hal::log("usb: device %u: %04X:%04X \"%s\", class %u, %s speed", addr, dd->idVendor, dd->idProduct, name,
+           dd->bDeviceClass, info.speed == USB_SPEED_LOW ? "low" : info.speed == USB_SPEED_FULL ? "full"
+                                                                                                : "high");
   if (dd->bDeviceClass == USB_CLASS_HUB || !findMidi(cfg, v, alt)) {
-    hal::log("usb: %04X:%04X isn't MIDI", dd->idVendor, dd->idProduct);
+    hal::log("usb: %04X:%04X isn't MIDI%s", dd->idVendor, dd->idProduct, dd->bDeviceClass == USB_CLASS_HUB ? " (a hub)" : "");
     usb_host_device_close(client, v.h);  // not MIDI (a hub is the hub driver's)
     return;
   }
@@ -237,8 +249,6 @@ static void openDev(uint8_t addr) {
   } else {
     v.epOut = 0;
   }
-  char name[32];
-  ascii(info.str_desc_product, name, sizeof name);
   midi::mount(i, dd->idVendor, dd->idProduct, name);
 }
 
@@ -260,10 +270,41 @@ static void gone(usb_device_handle_t h) {
 }
 
 static void clientEvent(const usb_host_client_event_msg_t* m, void*) {
+  if (m->event == USB_HOST_CLIENT_EVENT_NEW_DEV) {
+    hal::log("usb: a new device, address %u", m->new_dev.address);
+  }
   if (m->event == USB_HOST_CLIENT_EVENT_NEW_DEV && nNew < sizeof newAddr) {
     newAddr[nNew++] = m->new_dev.address;
   } else if (m->event == USB_HOST_CLIENT_EVENT_DEV_GONE) {
     gone(m->dev_gone.dev_hdl);
+  }
+}
+
+// the devices the library has: any new one is opened (as well as the NEW_DEV event, which doesn't always come)
+static void poll() {
+  static uint32_t at;
+  uint32_t now = millis();
+  if (now - at < 500) {
+    return;
+  }
+  at = now;
+  uint8_t list[16];
+  int n = 0;
+  if (usb_host_device_addr_list_fill(sizeof list, list, &n) != ESP_OK) {
+    return;
+  }
+  bool here[128] = {};
+  for (int i = 0; i < n; i++) {
+    here[list[i] & 127] = true;
+    if (!seen[list[i] & 127]) {
+      hal::log("usb: the library has device %u", list[i]);
+      openDev(list[i]);
+    }
+  }
+  for (int a = 0; a < 128; a++) {
+    if (seen[a] && !here[a]) {
+      seen[a] = false;  // gone: if it comes back, it's looked at again
+    }
   }
 }
 
@@ -315,6 +356,7 @@ static void hostTask(void*) {
     }
     midi::service();
     ledLoop();
+    poll();
   }
 }
 
@@ -322,12 +364,28 @@ void board::usbHostBegin() {
   usb_host_config_t hc = {};
   hc.skip_phy_setup = false;
   hc.intr_flags = ESP_INTR_FLAG_LEVEL1;
+  // the framework is built with ENUM_FILTER_CALLBACK, and without a filter every device is turned away (with only a
+  // warning, which isn't even compiled in): take them all, in their first configuration
+  hc.enum_filter_cb = [](const usb_device_desc_t*, uint8_t* config) {
+    *config = 1;
+    return true;
+  };
   esp_err_t e = usb_host_install(&hc);
   if (e != ESP_OK) {
     hal::log("usb: can't start the USB host (%s)", esp_err_to_name(e));
     return;
   }
   hostOn = true;
+  // ESP-IDF's own messages (errors: a device that doesn't enumerate, ...) into our log too
+  esp_log_set_vprintf([](const char* fmt, va_list a) {
+    char buf[160];
+    int n = vsnprintf(buf, sizeof buf, fmt, a);
+    while (n > 0 && n < (int)sizeof buf && (buf[n - 1] == '\n' || buf[n - 1] == '\r')) {
+      buf[--n] = 0;
+    }
+    hal::log("idf: %s", buf);
+    return n;
+  });
   xTaskCreatePinnedToCore(libTask, "usblib", 4096, 0, 6, 0, 1);
   xTaskCreatePinnedToCore(hostTask, "usbhost", 8192, 0, 5, 0, 1);
   hal::log("usb: host");
