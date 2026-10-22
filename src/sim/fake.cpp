@@ -37,9 +37,9 @@ static struct {
   bool faults, unplugged;
   std::vector<uint8_t> flash;
   std::vector<bool> got;
-  // fomajam: its song (a version 9 one is 11914 bytes, starting with 9 and the tempo), and one coming in
+  // fomajam: its song (a version 9 one is 11914 bytes, starting with 9 and the tempo), its kits, and one coming in
   bool fomajam, playing;
-  std::vector<uint8_t> song, in;
+  std::vector<uint8_t> song, kits, in;
   uint32_t inTotal, inGot;
 } f;
 
@@ -257,10 +257,13 @@ void fake::dump() {
 }
 
 // ----------------------------------------------------------------------------------------- fomajam ---
-// its sharing (fomajam's platform/src/share.c), written again from what it says: 1 if b was one of its frames
+// its sharing (fomajam's platform/src/share.c), written again from what it says: block 0 its song, block 1 its kits
+// (288 KiB of flash). 1 if b was one of its frames
 #define SONG_SIZE 11914
+#define STORE_MAX (288 * 1024)
 static bool share(const uint8_t* b, uint32_t n) {
-  static uint8_t q[1024], r[1024], w[1300];
+  static uint8_t q[1024], r[1024], w[1300], doneWas[8];
+  static int inBlock = -1;
   auto rd16 = [](const uint8_t* p) { return (uint32_t)(p[0] | p[1] << 8); };
   auto rd32 = [&](const uint8_t* p) { return rd16(p) | rd16(p + 2) << 16; };
   auto wr32 = [](uint8_t* p, uint32_t v) {
@@ -271,65 +274,102 @@ static bool share(const uint8_t* b, uint32_t n) {
   auto reply = [&](uint8_t cmd, uint32_t len) { sendSysex(FM1, w, fm1::frame(cmd, r, len, w)); };
   for (uint8_t cmd = 0x50; cmd <= 0x53; cmd++) {
     int k = fm1::unframe(b, n, cmd, q, sizeof q);
-    if (k < 0) {
+    if (k < 1) {
       continue;
     }
     if (chance(3)) {
       return true;  // lost on the way: fm1buddy asks again
     }
-    if (cmd == 0x50) {
-      memset(r, 0, 31);
+    int blk = q[0];
+    const uint8_t* body = q + 1;
+    k--;
+    if (blk > 1) {
+      return true;
+    }
+    std::vector<uint8_t>& have = blk ? f.kits : f.song;
+    if (cmd == 0x50 && !k) {
+      memset(r, 0, 36);
       r[0] = 1;
-      wr32(r + 1, f.song.size());
+      wr32(r + 1, have.size());
       r[5] = 0, r[6] = 2;  // 512
       memcpy(r + 7, "FOMAJAM", 7);
       memcpy(r + 23, "0.1", 3);
-      reply(cmd, 31);
+      r[31] = blk;
+      wr32(r + 32, blk ? STORE_MAX : 12276);
+      reply(cmd, 36);
     } else if (cmd == 0x51 && k == 6) {
-      uint32_t off = rd32(q), len = rd16(q + 4);
-      len = off >= f.song.size() ? 0 : std::min<uint32_t>(std::min<uint32_t>(len, 512), f.song.size() - off);
-      memcpy(r, q, 4);
+      uint32_t off = rd32(body), len = rd16(body + 4);
+      len = off >= have.size() ? 0 : std::min<uint32_t>(std::min<uint32_t>(len, 512), have.size() - off);
+      memcpy(r, body, 4);
       r[4] = len & 0xFF, r[5] = len >> 8;
-      memcpy(r + 6, f.song.data() + off, len);
+      memcpy(r + 6, have.data() + off, len);
       reply(cmd, 6 + len);
     } else if (cmd == 0x52 && k >= 8) {
-      uint32_t off = rd32(q), total = rd32(q + 4), len = k - 8;
+      uint32_t off = rd32(body), total = rd32(body + 4), len = k - 8;
+      uint8_t st = 0;
       if (!off) {
+        doneWas[0] = 0;
+        inBlock = blk;
         f.inTotal = total, f.inGot = 0;
         f.in.assign(total, 0);
+        if (f.playing && blk) {
+          st = 1;  // its kits: asked at the first piece
+          inBlock = -1;
+        } else if (blk) {
+          f.kits.clear();  // forgotten as it starts
+        }
       }
-      uint8_t st = 0;
-      if (total > 12276 || len > 512) {
+      if (st) {
+      } else if (total > (blk ? STORE_MAX : 12276) || len > 512) {
         st = 2;
-      } else if (total != f.inTotal || off > f.inGot || off + len > total) {
+      } else if (blk != inBlock || total != f.inTotal || off > f.inGot || off + len > total) {
         st = 3;
       } else {
-        memcpy(f.in.data() + off, q + 8, len);
+        memcpy(f.in.data() + off, body + 8, len);
         f.inGot = std::max(f.inGot, off + len);
       }
-      memcpy(r, q, 4);
+      memcpy(r, body, 4);
       r[4] = st;
       reply(cmd, 5);
     } else if (cmd == 0x53 && k == 6) {
-      uint32_t total = rd32(q), c = 0;
-      for (uint32_t i = 0; i < f.inGot && i < f.in.size(); i++) {
-        c ^= (uint32_t)f.in[i] << 8;
-        for (int j = 0; j < 8; j++) {
-          c = c & 0x8000 ? (c << 1) ^ 0x1021 : c << 1;
-        }
-        c &= 0xFFFF;
-      }
-      uint8_t st = total != f.inTotal || f.inGot != total || c != rd16(q + 4) ? 3
-                   : f.playing                                                ? 1
-                   : total != SONG_SIZE || f.in[0] != 9                       ? 2
-                                                                              : 0;
-      if (!st) {
-        f.song = f.in;
-        hal::log("fake fomajam: song loaded (tempo %d)", f.song[1]);
+      uint8_t st;
+      if (blk != inBlock && doneWas[0] == blk + 1 && !memcmp(doneWas + 1, body, 6)) {
+        st = doneWas[7];  // asked again
       } else {
-        hal::log("fake fomajam: song not loaded (%d)", st);
+        uint32_t total = rd32(body), c = 0;
+        for (uint32_t i = 0; i < f.inGot && i < f.in.size(); i++) {
+          c ^= (uint32_t)f.in[i] << 8;
+          for (int j = 0; j < 8; j++) {
+            c = c & 0x8000 ? (c << 1) ^ 0x1021 : c << 1;
+          }
+          c &= 0xFFFF;
+        }
+        st = blk != inBlock || total != f.inTotal || f.inGot != total || c != rd16(body + 4) ? 3
+             : f.playing && !blk                                                             ? 1
+             : !blk && (total != SONG_SIZE || f.in[0] != 9)                                  ? 2
+                                                                                             : 0;
+        if (!st) {
+          have = f.in;
+          if (blk) {
+            std::string names;
+            for (int i = 0; have.size() > 8 && i < have[4]; i++) {
+              names += std::string(i ? ", " : "") + std::string((const char*)&have[8 + 12 * i], strnlen((const char*)&have[8 + 12 * i], 8));
+            }
+            hal::log("fake fomajam: kits loaded (%u bytes): %s", (unsigned)have.size(), names.c_str());
+          } else {
+            hal::log("fake fomajam: song loaded (tempo %d)", have[1]);
+          }
+        } else {
+          hal::log("fake fomajam: %s not loaded (%d)", blk ? "kits" : "song", st);
+        }
+        if (blk == inBlock) {
+          doneWas[0] = blk + 1;
+          memcpy(doneWas + 1, body, 6);
+          doneWas[7] = st;
+        }
       }
       f.inTotal = f.inGot = 0;
+      inBlock = -1;
       r[0] = st;
       reply(cmd, 1);
     }

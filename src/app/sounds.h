@@ -1,8 +1,8 @@
 // Sounds: SysEx to and from the FM-1 (or any device on the hub), kept on the SD card as .syx files in /syx.
 //
-// Setups: a firmware that shares (fomajam, through foma's platform/src/share.c) gives its song (or whatever it keeps)
-// as one block. It's kept on the SD card in a setup, a folder in /setups (setup-1/fomajam.bin), and loaded back later:
-// one setup per song played, say.
+// Setups: a firmware that shares (fomajam, through foma's platform/src/share.c) gives its song, and its kits of
+// samples (kits.h). They're kept on the SD card in a setup, a folder in /setups (setup-1/fomajam.bin, fomajam-kits.bin,
+// and kits/ for kits as folders of .wav files), and loaded back later: one setup per song played, say.
 //
 // Any firmware: a .syx file is sent as it is, and whatever the device sends is recorded into one (most firmwares that
 // can send their sounds do it from a menu on the device). On top of that, what the device's firmware speaks is asked
@@ -14,8 +14,11 @@
 #include <string>
 #include <vector>
 
+#include "kits.h"
+
 #define SYX_DIR "/syx"
 #define SETUPS_DIR "/setups"
+#define KITS_DIR "kits"
 
 namespace sounds {
 // what a device answered to
@@ -48,9 +51,20 @@ bool load(const std::string& name, std::vector<uint8_t>& out);
 // as /syx/<prefix>-N.syx (the next N); "" if it didn't save
 std::string save(const std::vector<uint8_t>& data, const char* prefix);
 
-// the setups (folders in /setups), by name; and the file in one that firmware app's block is kept in ("" no SD card)
+// the setups (folders in /setups), by name
 std::vector<std::string> setups();
-std::string setupFile(const std::string& setup, const char* app);
+enum SetupPart { SONG_FILE,      // fomajam.bin
+                 KITS_FILE,      // fomajam-kits.bin
+                 KITS_FOLDER };  // kits/
+// where a part of setup is, for firmware app ("" no SD card)
+std::string setupFile(const std::string& setup, const char* app, SetupPart part);
+// what's in one, for firmware app
+struct Setup {
+  uint32_t song;                // its size (0: none)
+  std::vector<kits::Kit> kits;  // its kits (from kits/, else as they were kept)
+  bool wavs;                    // they're .wav files in kits/
+};
+Setup setup(const std::string& name, const char* app);
 
 // these block (a job's thread)
 void probe(int d, Speaks& out);
@@ -58,8 +72,9 @@ void probe(int d, Speaks& out);
 const char* send(int d, const std::vector<uint8_t>& data, void (*progress)(uint32_t done, uint32_t total));
 // the stock firmware's current voice, as a DX7 single-voice .syx; 0 or an error
 const char* readVoice(int d, std::vector<uint8_t>& syx);
-// the block device d's firmware shares, into a new setup (setup-N, its name in setup); 0 or an error
-const char* keep(int d, std::string& setup, void (*progress)(uint32_t done, uint32_t total));
-// a setup's block back to device d's firmware (which saves it); 0 or an error
-const char* restore(int d, const std::string& setup, void (*progress)(uint32_t done, uint32_t total));
+// device d's song and kits into a new setup (setup-N, its name in setup); 0 or an error. *step: 0 the song, 1 the kits
+const char* keep(int d, std::string& setup, void (*progress)(uint32_t done, uint32_t total), int* step);
+// a setup back to device d (which saves it): its kits, then its song; 0 or an error. *step: 0 making the kits from
+// .wav files, 1 sending them, 2 the song
+const char* restore(int d, const std::string& setup, void (*progress)(uint32_t done, uint32_t total), int* step);
 }  // namespace sounds

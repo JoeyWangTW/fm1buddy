@@ -171,15 +171,24 @@ void ui::setupPage(lv_obj_t* page) {
   header(page, setup.c_str(), soundsPage);
   lv_obj_t* body = scroller(page);
   lv_obj_set_style_pad_row(body, 4, 0);
-  struct stat st;
-  bool has = !stat(sounds::setupFile(setup, speaks.app).c_str(), &st);
+  sounds::Setup what = sounds::setup(setup, speaks.app);
+  bool has = what.song || !what.kits.empty();
   char s[96];
-  if (has) {
-    snprintf(s, sizeof s, "%s's song, %u KB", speaks.app, (unsigned)((st.st_size + 1023) / 1024));
+  if (what.song) {
+    snprintf(s, sizeof s, "%s's song, %u KB", speaks.app, (unsigned)((what.song + 1023) / 1024));
   } else {
-    snprintf(s, sizeof s, "Nothing in it for %s.", speaks.app);
+    snprintf(s, sizeof s, has ? "No song: its kits only." : "Nothing in it for %s.", speaks.app);
   }
   label(body, s, &lv_font_montserrat_14, has ? t.text : t.knob[0]);
+  for (auto& k : what.kits) {  // each kit: its name, and what it plays
+    std::string names;
+    for (auto& n : k.samples) {
+      names += (names.empty() ? "" : " ") + n;
+    }
+    lv_obj_t* l = label(body, (k.name + (k.drum ? " (a drum kit): " : ": ") + names).c_str(), &lv_font_montserrat_12, t.text);
+    lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(l, LV_PCT(100));
+  }
   lv_obj_t* row = box(body, LV_FLEX_FLOW_ROW);
   lv_obj_set_style_pad_top(row, 6, 0);
   if (jobs::running) {
@@ -191,7 +200,12 @@ void ui::setupPage(lv_obj_t* page) {
       lv_obj_add_state(b, LV_STATE_DISABLED);
     }
   }
-  lv_obj_t* l = label(body, "It replaces the song on the FM-1, and saves it there. Stop it playing first.",
+  lv_obj_t* l = label(body,
+                      what.kits.empty() ? "It replaces the song on the FM-1, and saves it there. Stop it playing first."
+                      : what.wavs       ? "It makes its kits from the .wav files in " KITS_DIR
+                                          "/, then replaces the "
+                                          "kits and the song on the FM-1. Stop it playing first."
+                                        : "It replaces the kits and the song on the FM-1. Stop it playing first.",
                       &lv_font_montserrat_12, t.dim);
   lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
   lv_obj_set_width(l, LV_PCT(100));
@@ -376,7 +390,7 @@ void ui::soundsPage(lv_obj_t* page) {
         lv_obj_add_state(b, LV_STATE_DISABLED);
       }
     } else if (asked && speaks.share) {
-      lv_obj_t* b = button(row, "Save its song", keepTapped);
+      lv_obj_t* b = button(row, "Save a setup", keepTapped);
       if (jobs::running) {
         lv_obj_add_state(b, LV_STATE_DISABLED);
       }
@@ -395,20 +409,26 @@ void ui::soundsPage(lv_obj_t* page) {
   if (n && probedSerial == devSerial && speaks.share) {
     lv_obj_t* h = label(body, "Setups (" SETUPS_DIR ")", &lv_font_montserrat_14, t.text);
     lv_obj_set_style_pad_top(h, 6, 0);
-    struct stat st;
+    std::vector<std::string> what;
     for (auto& name : sounds::setups()) {
-      if (!stat(sounds::setupFile(name, speaks.app).c_str(), &st)) {
+      sounds::Setup su = sounds::setup(name, speaks.app);
+      if (su.song || !su.kits.empty()) {
         setups.push_back(name);
+        size_t k = su.kits.size();
+        what.push_back(std::string(su.song ? "song" : "") + (su.song && k ? " + " : "") +
+                       (k ? std::to_string(k) + (k == 1 ? " kit" : " kits") : ""));
       }
     }
-    for (auto& name : setups) {
-      lv_obj_t* r = listRow(body, openSetup, &name);
-      lv_obj_t* l = line(r, name.c_str(), &lv_font_montserrat_16, t.text);
+    for (size_t i = 0; i < setups.size(); i++) {
+      lv_obj_t* r = listRow(body, openSetup, &setups[i]);
+      lv_obj_t* l = line(r, setups[i].c_str(), &lv_font_montserrat_16, t.text);
       lv_obj_set_flex_grow(l, 1);
-      label(r, LV_SYMBOL_RIGHT, &lv_font_montserrat_12, t.dim);
+      label(r, (what[i] + " " LV_SYMBOL_RIGHT).c_str(), &lv_font_montserrat_12, t.dim);
     }
     if (setups.empty()) {
-      std::string none = std::string("None yet: Save its song keeps ") + speaks.app + "'s song here, to load back later.";
+      std::string none = std::string("None yet: Save a setup keeps ") + speaks.app +
+                         "'s song and kits here, to load back later. Kits of your own: folders of .wav files in "
+                         "a setup's " KITS_DIR "/.";
       lv_obj_t* l = label(body, hal::sd() ? none.c_str() : "No SD card.", &lv_font_montserrat_12, t.dim);
       lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
       lv_obj_set_width(l, LV_PCT(100));

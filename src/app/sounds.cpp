@@ -14,6 +14,7 @@
 #include "catalog.h"
 #include "fm1.h"
 #include "hal.h"
+#include "kits.h"
 #include "midi.h"
 
 static void wait(uint32_t ms) {
@@ -237,13 +238,15 @@ const char* sounds::readVoice(int d, std::vector<uint8_t>& syx) {
 
 // --------------------------------------------------------------------------------------- sharing ---
 // foma's (platform/src/share.c in fomajam), in M-VAVE's frames: each asked and answered with the same command.
-// Numbers are little-endian
-#define SHARE_INFO 0x50   // -> 01, size u32, chunk u16, name[16], version[8]
-#define SHARE_READ 0x51   // off u32, len u16 -> off u32, len u16, the bytes
-#define SHARE_WRITE 0x52  // off u32, total u32, the bytes -> off u32, status
-#define SHARE_DONE 0x53   // total u32, crc16 u16 -> status
+// Numbers are little-endian. Block 0 is the song, block 1 the kits (kits.h)
+#define SHARE_INFO 0x50   // block -> 01, size u32, chunk u16, name[16], version[8], block, max u32
+#define SHARE_READ 0x51   // block, off u32, len u16 -> off u32, len u16, the bytes
+#define SHARE_WRITE 0x52  // block, off u32, total u32, the bytes -> off u32, status
+#define SHARE_DONE 0x53   // block, total u32, crc16 u16 -> status (the same DONE again: the same answer)
 #define SHARE_CHUNK 512
-#define SHARE_FILE_MAX (64 * 1024)
+#define SHARE_FILE_MAX (1024 * 1024)
+#define SONG 0
+#define KITS 1
 enum { SHARE_OK,
        SHARE_BUSY,
        SHARE_BAD,
@@ -278,49 +281,150 @@ static uint32_t crc16(const uint8_t* p, uint32_t n) {
   return c;
 }
 
-// cmd with its body to device d, up to tries times; the reply's body (into out, up to max) that good() takes, and its
-// length; -1 if none came
+// cmd for block k with its body to device d, up to tries times; the reply's body (into out, up to max) that good()
+// takes, and its length; -1 if none came
 template <typename F>
-static int shareAsk(int d, uint8_t cmd, const uint8_t* body, uint32_t n, uint8_t* out, uint32_t max, int tries,
+static int shareAsk(int d, uint8_t cmd, uint8_t k, const uint8_t* body, uint32_t n, uint8_t* out, uint32_t max, int tries,
                     uint32_t ms, F good) {
-  std::vector<uint8_t> msg(2 + (n + 7) * 8 / 7 + 2), reply;
-  uint32_t k = fm1::frame(cmd, body, n, msg.data());
+  std::vector<uint8_t> b(1 + n), msg(2 + (n + 8) * 8 / 7 + 2), reply;
+  b[0] = k;
+  if (n) {
+    memcpy(b.data() + 1, body, n);
+  }
+  uint32_t w = fm1::frame(cmd, b.data(), b.size(), msg.data());
   for (int t = 0; t < tries; t++) {
     int len = -1;
     auto match = [&](const uint8_t* m, uint32_t mn) {
       len = fm1::unframe(m, mn, cmd, out, max);
       return len >= 0 && good(out, (uint32_t)len);
     };
-    if (ask(d, msg.data(), k, ms, match, reply)) {
+    if (ask(d, msg.data(), w, ms, match, reply)) {
       return len;
     }
   }
   return -1;
 }
 
-static bool shareInfo(int d, sounds::Speaks& out, int tries) {
+struct BlockInfo {
+  uint32_t size, max;
+  char app[17], version[9];
+};
+
+static bool blockInfo(int d, uint8_t k, BlockInfo& out, int tries) {
   uint8_t r[64];
-  int n = shareAsk(d, SHARE_INFO, 0, 0, r, sizeof r, tries, 800,
-                   [](const uint8_t* r, uint32_t n) { return n >= 31 && r[0] == 1; });
+  int n = shareAsk(d, SHARE_INFO, k, 0, 0, r, sizeof r, tries, 800,
+                   [&](const uint8_t* r, uint32_t n) { return n >= 36 && r[0] == 1 && r[31] == k; });
   if (n < 0) {
     return false;
   }
-  out.share = true;
-  out.shareSize = rd32(r + 1);
+  out.size = rd32(r + 1);
+  out.max = rd32(r + 32);
   memcpy(out.app, r + 7, 16);
   out.app[16] = 0;
-  memcpy(out.appVersion, r + 23, 8);
-  out.appVersion[8] = 0;
+  memcpy(out.version, r + 23, 8);
+  out.version[8] = 0;
   return true;
 }
 
-// what the firmware's block is kept as: its name, lower case (fomajam.bin)
-static std::string blockName(const char* app) {
+static bool shareInfo(int d, sounds::Speaks& out, int tries) {
+  BlockInfo i;
+  if (!blockInfo(d, SONG, i, tries)) {
+    return false;
+  }
+  out.share = true;
+  out.shareSize = i.size;
+  memcpy(out.app, i.app, sizeof out.app);
+  memcpy(out.appVersion, i.version, sizeof out.appVersion);
+  return true;
+}
+
+// block k from device d (empty: nothing in it); 0 or an error
+static const char* readBlock(int d, uint8_t k, std::vector<uint8_t>& data, void (*progress)(uint32_t, uint32_t)) {
+  BlockInfo i;
+  if (!blockInfo(d, k, i, 3)) {
+    return "It didn't answer.";
+  }
+  if (i.size > SHARE_FILE_MAX) {
+    return "It has more than this can keep.";
+  }
+  data.assign(i.size, 0);
+  uint8_t q[6], r[6 + SHARE_CHUNK];
+  for (uint32_t off = 0; off < data.size(); off += SHARE_CHUNK) {
+    uint32_t want = std::min<uint32_t>(SHARE_CHUNK, data.size() - off);
+    wr32(q, off);
+    wr16(q + 4, want);
+    int n = shareAsk(d, SHARE_READ, k, q, sizeof q, r, sizeof r, 3, 1000, [&](const uint8_t* r, uint32_t n) {
+      return n == 6 + want && rd32(r) == off && rd16(r + 4) == want;
+    });
+    if (n < 0) {
+      return "It stopped answering.";
+    }
+    memcpy(data.data() + off, r + 6, want);
+    if (progress) {
+      progress(off + want, data.size());
+    }
+  }
+  return 0;
+}
+
+static const char* shareError(int status) {
+  switch (status) {
+    case SHARE_BUSY:
+      return "It's playing: stop it, then load again.";
+    case SHARE_BAD:
+      return "It didn't take it: it isn't something this version knows.";
+    case SHARE_INCOMPLETE:
+      return "Not all of it got there: try again.";
+    case SHARE_FAILED:
+      return "It took it, but couldn't save it.";
+  }
+  return "It said no.";
+}
+
+// block k to device d (which keeps it); 0 or an error
+static const char* writeBlock(int d, uint8_t k, const std::vector<uint8_t>& data, void (*progress)(uint32_t, uint32_t)) {
+  BlockInfo i;
+  if (!blockInfo(d, k, i, 3)) {
+    return "It didn't answer.";
+  }
+  if (data.size() > i.max) {
+    return k == KITS ? "The kits are too big for it: shorter samples, or fewer." : "It's too big for it.";
+  }
+  uint8_t q[8 + SHARE_CHUNK], r[16];
+  for (uint32_t off = 0; off < data.size(); off += SHARE_CHUNK) {
+    uint32_t n = std::min<uint32_t>(SHARE_CHUNK, data.size() - off);
+    wr32(q, off);
+    wr32(q + 4, data.size());
+    memcpy(q + 8, data.data() + off, n);
+    if (shareAsk(d, SHARE_WRITE, k, q, 8 + n, r, sizeof r, 3, 1000,
+                 [&](const uint8_t* r, uint32_t len) { return len == 5 && rd32(r) == off; }) < 0) {
+      return "It stopped answering.";
+    }
+    if (r[4] != SHARE_OK) {
+      return shareError(r[4]);
+    }
+    if (progress) {
+      progress(off + n, data.size());
+    }
+  }
+  // asked again, it answers as it did (checking and saving take it a moment)
+  wr32(q, data.size());
+  wr16(q + 4, crc16(data.data(), data.size()));
+  if (shareAsk(d, SHARE_DONE, k, q, 6, r, sizeof r, 3, 5000, [](const uint8_t*, uint32_t n) { return n == 1; }) < 0) {
+    return "It didn't say if it took it.";
+  }
+  return r[0] == SHARE_OK ? 0 : shareError(r[0]);
+}
+
+// ---------------------------------------------------------------------------------------- setups ---
+// a setup: a folder in /setups with what the firmware shares, named after it: fomajam.bin (the song),
+// fomajam-kits.bin (the kits, as it had them), and kits/ (the kits as folders of .wav files: kits.h)
+static std::string appName(const char* app) {
   std::string n;
   for (const char* c = app; *c; c++) {
     n += isalnum((unsigned char)*c) ? (char)tolower((unsigned char)*c) : '-';
   }
-  return (n.empty() ? "firmware" : n) + ".bin";
+  return n.empty() ? "firmware" : n;
 }
 
 std::vector<std::string> sounds::setups() {
@@ -341,34 +445,80 @@ std::vector<std::string> sounds::setups() {
   return out;
 }
 
-std::string sounds::setupFile(const std::string& setup, const char* app) {
+std::string sounds::setupFile(const std::string& setup, const char* app, SetupPart part) {
   std::string dir = catalog::path(SETUPS_DIR);
-  return dir.empty() ? "" : dir + "/" + setup + "/" + blockName(app);
+  if (dir.empty()) {
+    return "";
+  }
+  dir += "/" + setup + "/";
+  return part == SONG_FILE ? dir + appName(app) + ".bin" : part == KITS_FILE ? dir + appName(app) + "-kits.bin"
+                                                                             : dir + KITS_DIR;
 }
 
-const char* sounds::keep(int d, std::string& setup, void (*progress)(uint32_t, uint32_t)) {
+// a file (or its first head bytes)
+static bool loadFile(const std::string& path, std::vector<uint8_t>& out, long head = 0) {
+  FILE* f = fopen(path.c_str(), "rb");
+  if (!f) {
+    return false;
+  }
+  fseek(f, 0, SEEK_END);
+  long n = ftell(f);
+  fseek(f, 0, SEEK_SET);
+  n = head && n > head ? head : n;
+  bool ok = n > 0 && n <= SHARE_FILE_MAX;
+  if (ok) {
+    out.resize(n);
+    ok = fread(out.data(), 1, n, f) == (size_t)n;
+  }
+  fclose(f);
+  return ok;
+}
+
+static bool saveFile(const std::string& path, const std::vector<uint8_t>& data) {
+  FILE* f = fopen(path.c_str(), "wb");
+  bool ok = f && fwrite(data.data(), 1, data.size(), f) == data.size();
+  ok &= f && !fclose(f);
+  if (!ok) {
+    remove(path.c_str());
+  }
+  return ok;
+}
+
+sounds::Setup sounds::setup(const std::string& name, const char* app) {
+  Setup s = {};
+  struct stat st;
+  if (!stat(setupFile(name, app, SONG_FILE).c_str(), &st)) {
+    s.song = st.st_size;
+  }
+  std::vector<uint8_t> bank;
+  std::string dir = setupFile(name, app, KITS_FOLDER);
+  if (!stat(dir.c_str(), &st) && S_ISDIR(st.st_mode)) {
+    s.wavs = kits::scan(dir, s.kits);
+  } else if (loadFile(setupFile(name, app, KITS_FILE), bank, 4096)) {  // (the names are at the start)
+    kits::describe(bank, s.kits);
+  }
+  return s;
+}
+
+const char* sounds::keep(int d, std::string& setup, void (*progress)(uint32_t, uint32_t), int* step) {
   Speaks s = {};
   if (!shareInfo(d, s, 3)) {
     return "It didn't answer.";
   }
-  if (!s.shareSize || s.shareSize > SHARE_FILE_MAX) {
-    return "It has nothing to share.";
+  std::vector<uint8_t> song, bank;
+  if (step) {
+    *step = 0;
   }
-  std::vector<uint8_t> data(s.shareSize);
-  uint8_t q[6], r[6 + SHARE_CHUNK];
-  for (uint32_t off = 0; off < data.size(); off += SHARE_CHUNK) {
-    uint32_t want = std::min<uint32_t>(SHARE_CHUNK, data.size() - off);
-    wr32(q, off);
-    wr16(q + 4, want);
-    int n = shareAsk(d, SHARE_READ, q, sizeof q, r, sizeof r, 3, 1000, [&](const uint8_t* r, uint32_t n) {
-      return n == 6 + want && rd32(r) == off && rd16(r + 4) == want;
-    });
-    if (n < 0) {
-      return "It stopped answering.";
+  if (const char* e = readBlock(d, SONG, song, progress)) {
+    return e;
+  }
+  BlockInfo k;
+  if (blockInfo(d, KITS, k, 3) && k.size) {
+    if (step) {
+      *step = 1;
     }
-    memcpy(data.data() + off, r + 6, want);
-    if (progress) {
-      progress(off + want, data.size());
+    if (const char* e = readBlock(d, KITS, bank, progress)) {
+      return e;
     }
   }
   std::string dir = catalog::path(SETUPS_DIR);
@@ -383,80 +533,55 @@ const char* sounds::keep(int d, std::string& setup, void (*progress)(uint32_t, u
       break;
     }
   }
-  std::string p = setupFile(setup, s.app);
   mkdir((dir + "/" + setup).c_str(), 0777);
-  FILE* f = fopen(p.c_str(), "wb");
-  bool ok = f && fwrite(data.data(), 1, data.size(), f) == data.size();
-  ok &= f && !fclose(f);
-  if (!ok) {
-    remove(p.c_str());
+  if (!saveFile(setupFile(setup, s.app, SONG_FILE), song) || (!bank.empty() && !saveFile(setupFile(setup, s.app, KITS_FILE), bank))) {
     return "Can't write it to the SD card.";
   }
   return 0;
 }
 
-static const char* shareError(int status) {
-  switch (status) {
-    case SHARE_BUSY:
-      return "It's playing: stop it, then load again.";
-    case SHARE_BAD:
-      return "It didn't take it: it isn't something this version knows.";
-    case SHARE_INCOMPLETE:
-      return "Not all of it got there: try again.";
-    case SHARE_FAILED:
-      return "It took it, but couldn't save it.";
-  }
-  return "It said no.";
-}
-
-const char* sounds::restore(int d, const std::string& setup, void (*progress)(uint32_t, uint32_t)) {
+const char* sounds::restore(int d, const std::string& name, void (*progress)(uint32_t, uint32_t), int* step) {
   Speaks s = {};
   if (!shareInfo(d, s, 3)) {
     return "It didn't answer.";
   }
-  std::vector<uint8_t> data;
-  FILE* f = fopen(setupFile(setup, s.app).c_str(), "rb");
-  if (!f) {
+  Setup what = setup(name, s.app);
+  if (!what.song && what.kits.empty()) {
     return "This setup has nothing for the firmware it has now.";
   }
-  fseek(f, 0, SEEK_END);
-  long size = ftell(f);
-  fseek(f, 0, SEEK_SET);
-  bool ok = size > 0 && size <= SHARE_FILE_MAX;
-  if (ok) {
-    data.resize(size);
-    ok = fread(data.data(), 1, size, f) == (size_t)size;
-  }
-  fclose(f);
-  if (!ok) {
-    return "Can't read it from the SD card.";
-  }
-  uint8_t q[8 + SHARE_CHUNK], r[16];
-  for (uint32_t off = 0; off < data.size(); off += SHARE_CHUNK) {
-    uint32_t k = std::min<uint32_t>(SHARE_CHUNK, data.size() - off);
-    wr32(q, off);
-    wr32(q + 4, data.size());
-    memcpy(q + 8, data.data() + off, k);
-    int n = shareAsk(d, SHARE_WRITE, q, 8 + k, r, sizeof r, 3, 1000,
-                     [&](const uint8_t* r, uint32_t n) { return n == 5 && rd32(r) == off; });
-    if (n < 0) {
-      return "It stopped answering.";
+  // its kits first: made from kits/, else as they were kept
+  std::vector<uint8_t> bank;
+  if (what.wavs) {
+    if (step) {
+      *step = 0;
     }
-    if (r[4] != SHARE_OK) {
-      return shareError(r[4]);
+    if (const char* e = kits::build(setupFile(name, s.app, KITS_FOLDER), bank)) {
+      return e;
     }
-    if (progress) {
-      progress(off + k, data.size());
+  } else if (!what.kits.empty() && !loadFile(setupFile(name, s.app, KITS_FILE), bank)) {
+    return "Can't read its kits from the SD card.";
+  }
+  if (!bank.empty()) {
+    if (step) {
+      *step = 1;
+    }
+    if (const char* e = writeBlock(d, KITS, bank, progress)) {
+      return e;
     }
   }
-  // once: it starts over after DONE, whatever it said (and saving takes it a moment)
-  wr32(q, data.size());
-  wr16(q + 4, crc16(data.data(), data.size()));
-  int n = shareAsk(d, SHARE_DONE, q, 6, r, sizeof r, 1, 3000, [](const uint8_t*, uint32_t n) { return n == 1; });
-  if (n < 0) {
-    return "It didn't say if it took it.";
+  if (what.song) {
+    std::vector<uint8_t> song;
+    if (!loadFile(setupFile(name, s.app, SONG_FILE), song)) {
+      return "Can't read its song from the SD card.";
+    }
+    if (step) {
+      *step = 2;
+    }
+    if (const char* e = writeBlock(d, SONG, song, progress)) {
+      return e;
+    }
   }
-  return r[0] == SHARE_OK ? 0 : shareError(r[0]);
+  return 0;
 }
 
 void sounds::probe(int d, Speaks& out) {

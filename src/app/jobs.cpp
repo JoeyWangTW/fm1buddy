@@ -304,10 +304,12 @@ static void voiceJob(void*) {
   finish(!saved.empty());
 }
 
+static int phase;  // KEEP, RESTORE: where it's at (sounds.h)
+
 static void keepJob(void*) {
   step = GETTING;
   total = 0;
-  if (const char* e = sounds::keep(device, saved, progress)) {
+  if (const char* e = sounds::keep(device, saved, progress, &phase)) {
     error = e;
     return finish(false);
   }
@@ -317,7 +319,7 @@ static void keepJob(void*) {
 static void restoreJob(void*) {
   step = SENDING;
   total = 0;
-  if (const char* e = sounds::restore(device, setupName, progress)) {
+  if (const char* e = sounds::restore(device, setupName, progress, &phase)) {
     error = e;
     return finish(false);
   }
@@ -329,6 +331,7 @@ bool jobs::keep(int d) {
     return false;
   }
   device = d;
+  phase = 0;
   return start(KEEP, keepJob);
 }
 
@@ -338,6 +341,7 @@ bool jobs::restore(int d, const std::string& setup) {
   }
   device = d;
   setupName = setup;
+  phase = 0;
   return start(RESTORE, restoreJob);
 }
 
@@ -412,13 +416,18 @@ std::string jobs::status() {
       return "Reading the list...";
     case SENDING: {
       uint32_t t = total, d = done;
-      return "Sending " + std::to_string(t ? (unsigned long long)d * 100 / t : 0) + "%...";
+      std::string pct = std::to_string(t ? (unsigned long long)d * 100 / t : 0) + "%...";
+      if (kind == RESTORE) {
+        return phase == 0 ? "Making the kits..." : (phase == 1 ? "Sending the kits " : "Sending the song ") + pct;
+      }
+      return "Sending " + pct;
     }
     case ASKING_IT:
       return "Asking it...";
     case GETTING: {
       uint32_t t = total, d = done;
-      return "Getting it " + std::to_string(t ? (unsigned long long)d * 100 / t : 0) + "%...";
+      return (phase ? "Getting the kits " : "Getting the song ") + std::to_string(t ? (unsigned long long)d * 100 / t : 0) +
+             "%...";
     }
   }
   return kind == SCAN && running ? "Looking for networks..." : "";
