@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>fm1buddy installer</title>
-    <meta name="description" content="Install fm1buddy on the CYD-S3 touch screen, the Feather USB host box, the ultra-light RP2040-Zero box and the Cheap Yellow Display, from the browser." />
+    <meta name="description" content="Install fm1buddy on the CYD-S3 touch screen, from the browser." />
     <link rel="stylesheet" href="style.css" />
     <script type="module" src="https://unpkg.com/esp-web-tools@10.4.0/dist/web/install-button.js?module"></script>
   </head>
@@ -12,23 +12,14 @@
     <header>
       <div class="wrap">
         <h1>fm1buddy</h1>
-        <p class="lede">Plug USB MIDI controllers straight into the M-VAVE FM-1, map their MIDI, and switch the FM-1's firmware, with no computer.</p>
+        <p class="lede">Switch the M-VAVE FM-1's firmware, and play it from USB and Bluetooth MIDI controllers, with no computer.</p>
         <p id="release" class="release">Looking for the latest release…</p>
       </div>
     </header>
 
     <main class="wrap">
-      <nav class="tabs" role="tablist">
-        <button role="tab" data-tab="s3" aria-selected="true">CYD-S3</button>
-        <button role="tab" data-tab="box">USB host box</button>
-        <button role="tab" data-tab="oled">Box with a screen</button>
-        <button role="tab" data-tab="cyd">Touch screen (CYD)</button>
-        <button role="tab" data-tab="lite">Ultra-light</button>
-      </nav>
-
-      <!-- the CYD-S3: all in one -->
       <section id="s3" class="panel">
-        <p class="what">The cheapest way, and nothing to put together: a <a href="https://www.amazon.com/dp/B0FSQF6FKN">Freenove ESP32-S3 2.8" touch screen</a> (FNK0104B, a "CYD" with an ESP32-S3) is the USB host box and the touch screen in one. Its USB-C port is the host: a USB-C OTG adapter with a charging port splits it into a hub and the power. It installs FM-1 firmwares from the <a href="https://thefirmwarehub.com">FM-1 Firmware Hub</a> over Wi-Fi (or from its SD card), maps MIDI, and brings in Bluetooth MIDI, like the <a href="#cyd" data-go="cyd">CYD</a> does with a box. See <a href="#s3-limits">what it can't do</a>.</p>
+        <p class="what">A <a href="https://www.amazon.com/dp/B0FSQF6FKN">Freenove ESP32-S3 2.8" touch screen</a> (FNK0104B, a "CYD" with an ESP32-S3) with an SD card: it lists the firmwares on its card and on the <a href="https://thefirmwarehub.com">FM-1 Firmware Hub</a> (with what each one is), downloads them over Wi-Fi, and installs them on the FM-1. Its USB-C port is a USB host, so a controller on a hub with the FM-1 plays it; Bluetooth MIDI keyboards, phones and computers join in. Nothing to put together.</p>
         <h2>You need</h2>
         <ul>
           <li>the Freenove ESP32-S3 Display, 2.8", with touch (<strong>FNK0104B</strong>; the A has no touch)</li>
@@ -36,32 +27,38 @@
           <li>a small USB hub (the adapter powers it)</li>
           <li>a USB-C charger or a power bank</li>
           <li>a microSD card (FAT32)</li>
-          <li>Chrome or Edge on a computer, and a USB-C cable that carries data, for this once</li>
+          <li>Chrome or Edge on a computer, and a USB-C cable that carries data</li>
         </ul>
         <h2>Install</h2>
         <ol class="steps">
-          <li><strong>Hold the board's BOOT button</strong> (on its back, next to the USB-C) while you plug it into the computer, straight in (not through the adapter), then let go.</li>
+          <li><strong>Plug the board into the computer</strong>, straight in (not through the adapter). If it has an older fm1buddy on it, hold its <strong>BOOT</strong> button (on its back, next to the USB-C) while you plug it in.</li>
           <li>
             <strong>Install:</strong> press the button, pick the board's port (<em>USB JTAG/serial debug unit</em>, or <em>usbmodem</em>), and confirm.
             <div class="actions">
               <esp-web-install-button class="fw-s3">
                 <button slot="activate" class="button">Install on the CYD-S3</button>
-                <span slot="unsupported" class="note">This browser can't: use Chrome or Edge on a computer (or <a class="fw-s3-bin" download>download the .bin</a> for esptool).</span>
+                <span slot="unsupported" class="note">This browser can't: use Chrome or Edge on a computer (or <a class="fw-s3-bin" download>download the .bin</a> for esptool: <code>esptool.py --chip esp32s3 write_flash 0x0 fm1buddy-cyd-s3.bin</code>).</span>
                 <span slot="not-allowed" class="note">The page must be opened over https.</span>
               </esp-web-install-button>
             </div>
-            <p class="note">When it's done, the board restarts as a USB host, so the computer loses it: that's right. Unplug it.</p>
+            <p class="note">To update it later, plug it into the computer and install again: on a computer it's a serial port, no BOOT button needed.</p>
           </li>
-          <li><strong>The SD card</strong> (FAT32): put it in. Firmwares go into its <code>fm1</code> folder: the board downloads them there itself (<em>ONLINE</em>), or copy <code>.fwsc</code> packages there on a computer.</li>
+          <li><strong>The SD card</strong> (FAT32): put it in. Firmwares go into its <code>fm1</code> folder: the board downloads them there itself, or copy <code>.fwsc</code> packages there on a computer.</li>
+          <li><strong>Wi-Fi:</strong> on the board, tap the gear, then <em>Wi-Fi</em>, pick your network and type its password. Wi-Fi is only on while it downloads.</li>
           <li>
-            <strong>Plug in:</strong> the adapter into the board, a hub into the adapter's USB-A, a charger or power bank into its charging port, and the FM-1 and your controller into the hub. The LED on the back flashes once when it starts, and when MIDI goes through.
-            <pre class="wiring"><code>keyboard ─┐
-          ├─ USB hub ── OTG adapter ── CYD-S3
-FM-1 ─────┘                 │
-                charger ────┘ (its charging port)</code></pre>
+            <strong>Plug in:</strong> the adapter into the board, a hub into the adapter's USB-A, a charger or power bank into its charging port, and the FM-1 and your controller into the hub.
+            <pre class="wiring"><code>controller ─┐
+            ├─ USB hub ── OTG adapter ── CYD-S3
+FM-1 ───────┘                 │
+                  charger ────┘ (its charging port)</code></pre>
           </li>
-          <li><strong>Use it</strong> as the <a href="#cyd" data-go="cyd">CYD</a>: the top right shows the FM-1 on the hub; tap a package, then <em>INSTALL</em>. <em>ONLINE</em> gets new firmwares over Wi-Fi, <em>DEVICES</em> → <em>MAP</em> is the MIDI mapping, <em>DEVICES</em> → <em>BLUETOOTH</em> connects Bluetooth MIDI keyboards and synths (and phones, tablets and computers connect to <em>fm1buddy</em>).</li>
         </ol>
+        <h2>Use it</h2>
+        <ul>
+          <li><strong>Firmware</strong> (the download icon): <em>SD card</em> lists the firmwares on the card, <em>Hub</em> the Firmware Hub's (filter them by kind, sort them by stars, date or name). Tap one for what it is; <em>Save to SD</em> downloads it, <em>Install</em> (tap it twice) installs it on the FM-1. Keep the FM-1 plugged in until it says <em>Installed</em>. Each download is checked (its size, sha256 and identity) before it's kept.</li>
+          <li><strong>MIDI</strong> (the note icon): what's on the hub, each with a light when it plays. Whatever one plays, the others hear. <em>Bluetooth MIDI</em> is off until you turn it on there: phones, tablets and computers connect to <em>fm1buddy</em>, and Bluetooth MIDI keyboards and synths around are listed: tap one to connect it (it's remembered).</li>
+          <li><strong>Settings</strong> (the gear): Wi-Fi, the color theme, the brightness.</li>
+        </ul>
         <h2>A case</h2>
         <div class="case" data-case="s3">
           <img src="case/s3.png" alt="The case for the CYD-S3" width="450" height="350" loading="lazy" />
@@ -71,254 +68,18 @@ FM-1 ─────┘                 │
             <div class="actions case-links"></div>
           </div>
         </div>
-        <h2 id="s3-limits">What it can't do</h2>
+        <h2>What it can't do</h2>
         <ul>
-          <li><strong>Two devices on the hub:</strong> the FM-1 and one controller. The S3's USB has room for that and no more (8 channels: the hub takes 2, each device 3); a third device is left out. For more, use the <a href="#box" data-go="box">Feather box</a>.</li>
-          <li><strong>The hub needs the charger.</strong> The board can't power its USB-C port itself, so the hub and the FM-1 get their power from the adapter's charging port. A battery keeps the screen and Bluetooth MIDI going without it, not the hub.</li>
-          <li><strong>Its USB-C port is the host,</strong> so to update the board, hold BOOT while you plug it into the computer (straight in), and install again. The serial console is on its <code>UART</code> socket (460800 baud), for a USB serial adapter.</li>
-          <li>It's the box itself, so it doesn't wire to another box (CN1, as the CYD does).</li>
+          <li><strong>Two devices on the hub:</strong> the FM-1 and one controller. The S3's USB has room for that and no more (8 channels: the hub takes 2, each device 3).</li>
+          <li><strong>The hub needs the charger.</strong> The board can't power its USB-C port itself, so the hub and what's on it get their power from the adapter's charging port. A battery keeps the screen and Bluetooth MIDI going without it, not the hub.</li>
+          <li>Bluetooth stops while Wi-Fi is on (they don't both fit in its memory), and starts again after.</li>
         </ul>
-      </section>
-
-      <!-- the Feather on its own -->
-      <section id="box" class="panel" hidden>
-        <p class="what">An <a href="https://www.adafruit.com/product/5723">Adafruit Feather RP2040 with USB Type A Host</a>, a USB hub in its USB-A socket, and the FM-1 and your controllers on the hub. Whatever any of them sends goes to all of the others.</p>
-        <h2>You need</h2>
-        <ul>
-          <li>the Feather RP2040 with USB Type A Host</li>
-          <li>a USB hub (one with its own power supply if you plug in more than a couple of things)</li>
-          <li>a USB-C cable that carries data, and a computer for this once</li>
-          <li>afterwards: a USB-C charger or power bank</li>
-        </ul>
-        <h2>Install</h2>
-        <ol class="steps">
-          <li>
-            <strong>Get the firmware.</strong>
-            <div class="actions"><a class="button fw-feather" download>Download fm1buddy-feather.uf2</a></div>
-          </li>
-          <li><strong>Hold the Feather's BOOT button</strong> while you plug its USB-C into the computer, then let go. A drive called <code>RPI-RP2</code> appears.</li>
-          <li>
-            <strong>Copy the file onto <code>RPI-RP2</code>.</strong> Drag it there, or let this page do it (Chrome or Edge): pick the <code>RPI-RP2</code> drive when asked.
-            <div class="actions"><button class="button secondary copy-uf2" data-fw="feather">Copy it to RPI-RP2</button></div>
-            <p class="note copy-status" hidden></p>
-          </li>
-          <li>The drive disappears and the Feather restarts: <strong>it's ready.</strong> (A new drive, <code>fm1buddy</code>, shows up: that's for the firmware switcher.)</li>
-          <li>
-            <strong>Plug in:</strong> a USB hub into the Feather's USB-A (<em>HUB</em> on the case), and the FM-1 and your keyboards and controllers into the hub. The Feather's USB-C (<em>POWER</em>) is for power: a charger, a power bank or a computer. The FM-1 can't go there, it needs the hub too. The red LED blinks when MIDI goes through.
-            <pre class="wiring"><code>keyboard ─┐
-          ├─ USB hub ── HUB (USB-A)   Feather   POWER (USB-C) ── charger
-FM-1 ─────┘</code></pre>
-          </li>
-        </ol>
-        <h2>A case</h2>
-        <div class="case" data-case="bare">
-          <img src="case/bare.png" alt="The case for the USB host box" width="450" height="350" loading="lazy" />
-          <div>
-            <p>Print the base open side up and the lid flat side down, without supports (PLA or PETG). The lid snaps on. The lid has holes over BOOT and RESET, for a paperclip.</p>
-            <div class="actions case-links"></div>
-          </div>
-        </div>
-        <h2>MIDI mapping, without a screen</h2>
-        <p>Everything passes as it is, until you say otherwise. With the Feather on a computer, open <code>midimap.txt</code> on its <code>fm1buddy</code> drive and add a rule per line, then save and eject. The box uses them a second after you save, and every time it starts:</p>
-        <pre><code>from nanokontrol2 ch 1 cc 10 -> ch 2 cc 5
-cc 1 -> pc
-pb -> drop</code></pre>
-        <p class="note">The file explains the rest. A name matches any device whose name has it in it (any case).</p>
-        <p class="note">To update later, do the same again: your settings and files stay.</p>
-      </section>
-
-      <!-- the Feather with an OLED FeatherWing -->
-      <section id="oled" class="panel" hidden>
-        <p class="what">The USB host box with an <a href="https://www.adafruit.com/product/4650">Adafruit 128x64 OLED FeatherWing</a> on top: it installs FM-1 firmwares that you copy onto it, and edits the MIDI mapping, with its three buttons.</p>
-        <h2>You need</h2>
-        <ul>
-          <li>everything for the <a href="#box" data-go="box">USB host box</a></li>
-          <li>the 128x64 OLED FeatherWing</li>
-          <li>headers to stack them: male on the Feather, female on the FeatherWing (or stacking headers), and a soldering iron</li>
-          <li>optional: an <a href="https://www.adafruit.com/product/2922">Adalogger FeatherWing</a> for an SD card (the Feather holds about 10 firmwares by itself)</li>
-        </ul>
-        <h2>Build it</h2>
-        <ol class="steps">
-          <li><strong>Solder the headers</strong> onto the Feather and the FeatherWing, and stack the FeatherWing on top (its buttons up).</li>
-          <li><strong>Install the firmware</strong> as for the <a href="#box" data-go="box">USB host box</a>: it's the same file.</li>
-          <li><strong>Add FM-1 firmwares.</strong> With the Feather on the computer, open the <code>fm1buddy</code> drive and copy <code>.fwsc</code> packages into its <code>fm1</code> folder (from the <a href="https://thefirmwarehub.com">FM-1 Firmware Hub</a>, or your own <a href="https://github.com/konsumer/foma">foma</a> builds).</li>
-          <li><strong>Plug in</strong> the hub (into <em>HUB</em>), and the FM-1 and your controllers into the hub; power into <em>POWER</em>. The screen shows the FM-1 it found, top right.</li>
-        </ol>
-        <h2>A case</h2>
-        <div class="case" data-case="oled">
-          <img src="case/oled.png" alt="The case for the box with its screen" width="450" height="350" loading="lazy" />
-          <div>
-            <p>Print the base open side up and the lid flat side down, without supports (PLA or PETG). The lid snaps on. The tabs next to the screen press its three buttons.</p>
-            <div class="actions case-links"></div>
-          </div>
-        </div>
-        <p class="note">With an Adalogger FeatherWing stacked in between, print the <em>sd_oled</em> case: <span class="case-links" data-case="sd_oled"></span></p>
-        <h2>Use it</h2>
-        <table>
-          <tr>
-            <th>A</th>
-            <td>up</td>
-          </tr>
-          <tr>
-            <th>B</th>
-            <td>OK (hold it: back)</td>
-          </tr>
-          <tr>
-            <th>C</th>
-            <td>down</td>
-          </tr>
-        </table>
-        <ul>
-          <li><strong>Install firmware:</strong> pick a package, and OK installs it on the FM-1 (after checking it's for that model). Keep the FM-1 plugged in until it says <em>Installed</em>.</li>
-          <li><strong>MIDI map:</strong> pick a rule or <em>add a rule</em>; OK on a field changes it with up and down. <em>learn</em> fills in what you play next.</li>
-          <li><strong>MIDI thru</strong> turns the everything-to-everything on or off.</li>
-        </ul>
-      </section>
-
-      <!-- the CYD -->
-      <section id="cyd" class="panel" hidden>
-        <p class="what">An ESP32-2432S028R "Cheap Yellow Display" touch screen, wired to the USB host box: it gets FM-1 firmwares from the <a href="https://thefirmwarehub.com">FM-1 Firmware Hub</a> over Wi-Fi (or from its SD card), installs them, and edits the MIDI mapping. It also brings in Bluetooth MIDI: phones, tablets, computers, and wireless keyboards and synths play along with what's on the hub.</p>
-        <p class="note">No box yet? The <a href="#s3" data-go="s3">CYD-S3</a> is the box and the touch screen in one, and costs less.</p>
-        <h2>You need</h2>
-        <ul>
-          <li>the <a href="#box" data-go="box">USB host box</a>, installed</li>
-          <li>an ESP32-2432S028R "Cheap Yellow Display", and the 4-wire cable that comes with it</li>
-          <li>a microSD card (FAT32)</li>
-          <li>Chrome or Edge on a computer, and the CYD's USB cable</li>
-        </ul>
-        <h2>Install</h2>
-        <ol class="steps">
-          <li><strong>Plug the CYD into the computer</strong> with its USB cable.</li>
-          <li>
-            <strong>Install:</strong> press the button, pick the CYD's port (<em>USB Serial</em>, <em>CH340</em> or <em>usbserial</em>), and confirm.
-            <div class="actions">
-              <esp-web-install-button class="fw-cyd">
-                <button slot="activate" class="button">Install on the CYD</button>
-                <span slot="unsupported" class="note">This browser can't: use Chrome or Edge on a computer (or <a class="fw-cyd-bin" download>download the .bin</a> for esptool).</span>
-                <span slot="not-allowed" class="note">The page must be opened over https.</span>
-              </esp-web-install-button>
-            </div>
-            <p class="note">No port in the list? Windows and older macOS may need the <a href="https://www.wch-ic.com/downloads/CH341SER_EXE.html">CH340 driver</a>. If it can't connect, hold the CYD's BOOT button while it starts.</p>
-          </li>
-          <li><strong>The SD card</strong> (FAT32): put it in the CYD. Firmwares go into its <code>fm1</code> folder: the CYD downloads them there itself (below), or copy <code>.fwsc</code> packages there on a computer.</li>
-          <li>
-            <strong>Wire it</strong> to the Feather, from the CYD's <code>CN1</code> connector:
-            <table>
-              <tr>
-                <th>CYD CN1</th>
-                <th>Feather</th>
-              </tr>
-              <tr>
-                <td>GND</td>
-                <td>GND</td>
-              </tr>
-              <tr>
-                <td>IO22</td>
-                <td>TX</td>
-              </tr>
-              <tr>
-                <td>IO27</td>
-                <td>RX</td>
-              </tr>
-              <tr>
-                <td>3.3V</td>
-                <td>(not connected)</td>
-              </tr>
-            </table>
-            Power the CYD from its own USB (a 2-port charger powers both).
-          </li>
-          <li><strong>Turn them on.</strong> The top right of the CYD shows the FM-1 on the hub: tap a package, then <em>INSTALL</em>. <em>DEVICES</em> → <em>MAP</em> is the MIDI mapping.</li>
-          <li><strong>New firmwares, without a computer:</strong> tap <em>ONLINE</em>. The first time, pick your Wi-Fi and type its password (or put a <code>wifi.txt</code> on the card: the network's name on the first line, its password on the second). It lists the Firmware Hub's packages for the FM-1 on the hub; tap one, <em>DOWNLOAD</em>, then <em>INSTALL</em>. Each download is checked (its size, sha256 and identity) before it's kept.</li>
-          <li><strong>Bluetooth MIDI:</strong> connect a phone, tablet or computer to <em>fm1buddy</em>, or tap <em>DEVICES</em> → <em>BLUETOOTH</em> and tap a wireless keyboard or synth to connect it (it's remembered). They become devices on the box, for MIDI thru and the mapping. Update the Feather too: older box firmware doesn't know them.</li>
-        </ol>
-        <h2>A case</h2>
-        <div class="case" data-case="cyd">
-          <img src="case/cyd.png" alt="The case for the CYD, with the Feather behind it" width="450" height="350" loading="lazy" />
-          <div>
-            <p>Print the base open side up and the lid flat side down, without supports (PLA or PETG). The lid snaps on. The Feather lies across the box behind the CYD, its USB ports out the sides. Run its 3 wires before you close it.</p>
-            <div class="actions case-links"></div>
-          </div>
-        </div>
-      </section>
-
-      <!-- the RP2040-Zero -->
-      <section id="lite" class="panel" hidden>
-        <p class="what">The smallest, cheapest box: a <a href="https://www.waveshare.com/wiki/RP2040-Zero">Waveshare RP2040-Zero</a>, about the size of a thumbnail, with one USB-C port. A USB-C OTG adapter with a charging port splits that port into the hub and the power. It routes and maps MIDI like the Feather box, with fewer extras: see <a href="#lite-limits">what it can't do</a>.</p>
-        <h2>You need</h2>
-        <ul>
-          <li>a Waveshare RP2040-Zero</li>
-          <li>a <strong>USB-C OTG adapter with a charging port</strong> (USB-C plug; a USB-A socket and a USB-C charging socket) that passes charging and data <em>at the same time</em>. Look for one sold for the <strong>Chromecast with Google TV</strong>: it's the same situation, a device that is the USB host while it's powered through that port. Many 3-port "splitters" can't: they say "does not support charging and data at the same time". <br />Or a hub with a power input made for the Chromecast or Fire TV (USB-C plug, USB-A ports, a charging port): the adapter and the hub in one.</li>
-          <li>a USB hub (any small one: the adapter powers it)</li>
-          <li>a USB-C charger or a power bank</li>
-          <li>a USB-C cable and a computer, for this once</li>
-        </ul>
-        <h2>Install</h2>
-        <ol class="steps">
-          <li>
-            <strong>Get the firmware.</strong>
-            <div class="actions"><a class="button fw-pico" download>Download fm1buddy-pico.uf2</a></div>
-          </li>
-          <li><strong>Hold the board's BOOT button</strong> while you plug it into the computer (straight in, not through the adapter), then let go. A drive called <code>RPI-RP2</code> appears.</li>
-          <li>
-            <strong>Copy the file onto <code>RPI-RP2</code>.</strong> Drag it there, or let this page do it (Chrome or Edge).
-            <div class="actions"><button class="button secondary copy-uf2" data-fw="pico">Copy it to RPI-RP2</button></div>
-            <p class="note copy-status" hidden></p>
-          </li>
-          <li>
-            <strong>Plug in:</strong> the adapter into the board, a hub into the adapter's USB-A, a charger or power bank into its charging port, and the FM-1 and your controllers into the hub. The LED flashes once when it starts, and when MIDI goes through.
-            <pre class="wiring"><code>keyboard ─┐
-          ├─ USB hub ── OTG adapter ── RP2040-Zero
-FM-1 ─────┘                 │
-                charger ────┘ (its charging port)</code></pre>
-          </li>
-        </ol>
-        <h2>A case</h2>
-        <div class="case" data-case="lite">
-          <img src="case/lite.png" alt="The case for the RP2040-Zero" width="450" height="350" loading="lazy" />
-          <div>
-            <p>Print the base open side up and the lid flat side down, without supports (PLA or PETG). The lid snaps on, holds the board down, and is thin enough over it for the LED to shine through. The slot at the far end is for a CYD's wires.</p>
-            <div class="actions case-links"></div>
-          </div>
-        </div>
-        <h2 id="lite-limits">What it can't do</h2>
-        <ul>
-          <li><strong>No USB drive and no screen:</strong> its only USB port is the host. Installing FM-1 firmware needs a <a href="#cyd" data-go="cyd">CYD</a> (wired as below), or plug the FM-1 straight into a computer and use the <a href="https://thefirmwarehub.com">FM-1 Firmware Hub</a>.</li>
-          <li><strong>MIDI mapping</strong> comes from a USB stick: put <code>midimap.txt</code> on it (FAT32; the rules are as on the <a href="#box" data-go="box">USB host box</a>), and plug it into the hub. The box reads it when the stick goes in and keeps the rules until it's switched off. With a CYD, the CYD's rules win.</li>
-          <li><strong>No battery inside:</strong> a power bank is the battery. Some switch off when little is drawn.</li>
-          <li><strong>MIDI thru</strong> (everything to everything) is always on.</li>
-          <li>To update the box itself, open the lid to reach BOOT.</li>
-        </ul>
-        <h2>With a CYD</h2>
-        <p>Install the CYD as on its <a href="#cyd" data-go="cyd">tab</a>, and wire its <code>CN1</code> to the board's pins:</p>
-        <table>
-          <tr>
-            <th>CYD</th>
-            <th>RP2040-Zero</th>
-          </tr>
-          <tr>
-            <td>CN1 GND</td>
-            <td>GND</td>
-          </tr>
-          <tr>
-            <td>CN1 IO22</td>
-            <td>GP0 (TX)</td>
-          </tr>
-          <tr>
-            <td>CN1 IO27</td>
-            <td>GP1 (RX)</td>
-          </tr>
-          <tr>
-            <td>P1 VIN (optional)</td>
-            <td>5V: powers the CYD from the adapter</td>
-          </tr>
-        </table>
       </section>
 
       <section class="notes">
         <h2>Good to know</h2>
         <ul>
-          <li>The FM-1 only takes firmware over USB, so installing goes through the host box (or a computer).</li>
-          <li><strong>On a battery:</strong> the battery cases fit a flat 500 mAh LiPo (like Adafruit's 1578) under the Feather, and have a hole for a small slide switch in its lead. The Feather charges it from its USB-C, and makes the 5 V for the hub from it (500 mA at most). Roughly: the box and a small controller run an hour or two on 500 mAh; whatever else on the hub draws power (the FM-1, if it charges from it) takes from that.</li>
+          <li>The FM-1 only takes firmware over USB, so installing goes through the board's USB host (or a computer).</li>
           <li>Installing firmware is at your own risk. If the FM-1 won't start, hold <strong>OCT-</strong> while switching it on (the USB rescue), and install again.</li>
           <li>If a controller sends back everything it receives ("MIDI thru" or "echo" in its settings), turn that off, or messages go round in circles.</li>
         </ul>

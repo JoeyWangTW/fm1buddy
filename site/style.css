@@ -77,30 +77,6 @@ h1 {
   color: var(--dim);
 }
 
-.tabs {
-  display: flex;
-  gap: 4px;
-  overflow-x: auto;
-  border-bottom: 1px solid var(--line);
-}
-
-.tabs button {
-  flex: none;
-  padding: 10px 14px;
-  border: 0;
-  border-bottom: 3px solid transparent;
-  background: none;
-  color: var(--dim);
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.tabs button[aria-selected='true'] {
-  border-bottom-color: var(--accent);
-  color: var(--fg);
-}
-
 .panel,
 .notes {
   margin: 20px 0;
