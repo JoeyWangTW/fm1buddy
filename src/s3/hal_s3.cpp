@@ -24,7 +24,70 @@ static uint32_t hostTestUntil;
 #define LOG_FILE "/sdcard/fm1buddy/log.txt"
 static volatile bool wifiUp, radio;
 
+// lines from other tasks wait here for the main loop: only it writes them (to the SD card or the serial port)
+#define LOG_Q 32
+static char (*logQ)[160];
+static uint32_t logW, logR;
+static portMUX_TYPE logMux = portMUX_INITIALIZER_UNLOCKED;
+static TaskHandle_t mainTask;
+
+static void writeLine(const char* line, uint32_t ms) {
+  if (!logToSd) {
+    Serial.println(line);
+  } else if (FILE* f = fopen(LOG_FILE, "a")) {
+    fprintf(f, "%7.1f %s\n", ms / 1000.0, line);
+    fclose(f);
+  }
+}
+
+static void flushLog() {
+  char line[160];
+  for (;;) {
+    portENTER_CRITICAL(&logMux);
+    bool any = logR != logW;
+    if (any) {
+      memcpy(line, logQ[logR % LOG_Q], sizeof line);
+      logR++;
+    }
+    portEXIT_CRITICAL(&logMux);
+    if (!any) {
+      return;
+    }
+    uint32_t ms;
+    memcpy(&ms, line + sizeof line - 4, 4);  // when it was said, in its last 4 bytes
+    writeLine(line, ms);
+  }
+}
+
+void hal::log(const char* fmt, ...) {
+  char buf[160];
+  va_list a;
+  va_start(a, fmt);
+  vsnprintf(buf, sizeof buf - 4, fmt, a);
+  va_end(a);
+  uint32_t ms = ::millis();
+  if (!mainTask || xTaskGetCurrentTaskHandle() == mainTask) {
+    if (logQ) {
+      flushLog();
+    }
+    writeLine(buf, ms);
+    return;
+  }
+  if (!logQ) {
+    return;
+  }
+  memcpy(buf + sizeof buf - 4, &ms, 4);
+  portENTER_CRITICAL(&logMux);
+  if (logW - logR < LOG_Q) {
+    memcpy(logQ[logW % LOG_Q], buf, sizeof buf);
+    logW++;
+  }
+  portEXIT_CRITICAL(&logMux);
+}
+
 void board::begin() {
+  mainTask = xTaskGetCurrentTaskHandle();
+  logQ = (char (*)[160])heap_caps_malloc(LOG_Q * 160, MALLOC_CAP_SPIRAM);
   // (not heap_caps_malloc_extmem_enable(): small blocks must stay internal, the USB host's DMA can't reach PSRAM. The
   // big ones go there anyway: LVGL's pool, MIDI's buffers, TLS's)
   // and TLS's buffers (about 40 KB a connection): with Bluetooth on, the internal RAM can't spare them
@@ -78,6 +141,7 @@ void board::usbBegin() {
 }
 
 void board::loop() {
+  flushLog();
   if (hostTestUntil && (int32_t)(millis() - hostTestUntil) >= 0) {
     hal::log("usb: the test is over: restarting");
     esp_restart();
@@ -104,20 +168,6 @@ void board::printLog() {
 
 uint32_t hal::millis() {
   return ::millis();
-}
-
-void hal::log(const char* fmt, ...) {
-  char buf[160];
-  va_list a;
-  va_start(a, fmt);
-  vsnprintf(buf, sizeof buf, fmt, a);
-  va_end(a);
-  if (!logToSd) {
-    Serial.println(buf);
-  } else if (FILE* f = fopen(LOG_FILE, "a")) {
-    fprintf(f, "%7.1f %s\n", ::millis() / 1000.0, buf);
-    fclose(f);
-  }
 }
 
 const char* hal::sd() {
