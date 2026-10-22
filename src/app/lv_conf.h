@@ -33,6 +33,9 @@
 #define LV_FONT_MONTSERRAT_20 1
 #define LV_FONT_DEFAULT &lv_font_montserrat_14
 
+// lines break at spaces and punctuation, not inside "FM-1_974"
+#define LV_TXT_BREAK_CHARS " ,.;:)}"
+
 #define LV_USE_THEME_DEFAULT 1
 #define LV_THEME_DEFAULT_TRANSITION_TIME 0
 
