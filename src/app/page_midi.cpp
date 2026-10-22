@@ -11,8 +11,8 @@ using namespace ui;
 
 static uint32_t shownSeq;
 static lv_obj_t *dots[MIDI_DEVS], *lasts[MIDI_DEVS];
-static uint32_t counts[MIDI_DEVS], shownDropped;
-static lv_obj_t* dropLabel;
+static uint32_t counts[MIDI_DEVS], drops[MIDI_DEVS];
+static lv_obj_t* dropLabels[MIDI_DEVS];
 
 // "note C4  vel 100  ch 1   (20)": the last message, and how many it has sent
 static void lastText(const midi::Dev& v, char* s, int n) {
@@ -50,17 +50,17 @@ static void live() {
       continue;
     }
     lv_obj_set_style_text_color(dots[d], color(v.lastIn && now - v.lastIn < 150 ? t.accent : t.off), 0);
+    if (v.dropped != drops[d]) {
+      drops[d] = v.dropped;
+      lv_label_set_text_fmt(dropLabels[d], "%u to it dropped", (unsigned)v.dropped);
+      lv_obj_remove_flag(dropLabels[d], LV_OBJ_FLAG_HIDDEN);
+    }
     if (v.count != counts[d]) {
       counts[d] = v.count;
       char s[56];
       lastText(v, s, sizeof s);
       lv_label_set_text(lasts[d], s);
     }
-  }
-  if (dropLabel && midi::dropped != shownDropped) {
-    shownDropped = midi::dropped;
-    lv_label_set_text_fmt(dropLabel, "%u messages dropped (a device too slow to take them)", (unsigned)shownDropped);
-    lv_obj_remove_flag(dropLabel, LV_OBJ_FLAG_HIDDEN);
   }
 }
 
@@ -73,7 +73,7 @@ void ui::midiPage(lv_obj_t* page) {
 
   int n = 0;
   for (int d = 0; d < MIDI_DEVS; d++) {
-    dots[d] = lasts[d] = 0;
+    dots[d] = lasts[d] = dropLabels[d] = 0;
     midi::Dev v;
     if (!midi::dev(d, v)) {
       continue;
@@ -94,6 +94,14 @@ void ui::midiPage(lv_obj_t* page) {
     char s[56];
     lastText(v, s, sizeof s);
     lasts[d] = line(col, s, &lv_font_montserrat_12, t.dim);
+    // messages to it that it didn't take (a device that doesn't read its MIDI in, or too slowly)
+    drops[d] = v.dropped;
+    dropLabels[d] = label(r, "", &lv_font_montserrat_12, t.knob[0]);
+    if (v.dropped) {
+      lv_label_set_text_fmt(dropLabels[d], "%u to it dropped", (unsigned)v.dropped);
+    } else {
+      lv_obj_add_flag(dropLabels[d], LV_OBJ_FLAG_HIDDEN);
+    }
     lv_obj_set_width(lasts[d], LV_PCT(100));
   }
   if (!n) {
@@ -106,14 +114,6 @@ void ui::midiPage(lv_obj_t* page) {
     lv_obj_set_style_pad_ver(none, 6, 0);
   } else if (!midi::thru) {
     label(body, "Installing: MIDI waits until it's done.", &lv_font_montserrat_12, t.knob[1]);
-  }
-  shownDropped = midi::dropped;
-  dropLabel = line(body, "", &lv_font_montserrat_12, t.knob[0]);
-  lv_obj_set_width(dropLabel, LV_PCT(100));
-  if (shownDropped) {
-    lv_label_set_text_fmt(dropLabel, "%u messages dropped (a device too slow to take them)", (unsigned)shownDropped);
-  } else {
-    lv_obj_add_flag(dropLabel, LV_OBJ_FLAG_HIDDEN);
   }
 
   lv_obj_t* r = listRow(body, 0, 0);
