@@ -7,6 +7,7 @@
 #include <algorithm>
 
 #include "catalog.h"
+#include "fm1.h"
 #include "hal.h"
 #include "jobs.h"
 #include "ui_priv.h"
@@ -26,6 +27,7 @@ static std::string kindFilter;  // "": all
 static Firmware sel;            // the one the details show
 static lv_obj_t *list, *status, *refresh, *spin;
 static lv_obj_t *actions, *progress, *progressText;
+static std::string shownFm1;  // the FM-1 the Install button was made for
 
 static void detailPage(lv_obj_t* page);
 
@@ -267,8 +269,18 @@ void ui::firmwarePage(lv_obj_t* page) {
 }
 
 // ------------------------------------------------------------------------------------------ the details ---
+// "FM-1_015", "ota-FM-1_900", or ""
+static std::string fm1Now() {
+  const Fm1Id* id = fm1::known(fm1::current());
+  return id ? id->text : "";
+}
+
 static void showProgress() {
-  bool busy = jobs::running && jobs::kind == jobs::DOWNLOAD;
+  bool busy = jobs::running && (jobs::kind == jobs::DOWNLOAD || jobs::kind == jobs::INSTALL);
+  if (!busy && fm1Now() != shownFm1) {
+    go(detailPage);  // an FM-1 came or went: the Install button changes
+    return;
+  }
   lv_obj_add_flag(busy ? actions : progress, LV_OBJ_FLAG_HIDDEN);
   lv_obj_remove_flag(busy ? progress : actions, LV_OBJ_FLAG_HIDDEN);
   if (busy) {
@@ -279,11 +291,11 @@ static void showProgress() {
 }
 
 static void downloaded() {
-  if (jobs::kind != jobs::DOWNLOAD) {
+  if (jobs::kind != jobs::DOWNLOAD && jobs::kind != jobs::INSTALL) {
     return;
   }
   if (jobs::ok) {
-    toast("Saved to the SD card.");
+    toast(jobs::kind == jobs::INSTALL ? "Installed." : "Saved to the SD card.");
     sel.onSd = true;
   } else {
     toast(jobs::error.c_str(), true);
@@ -293,6 +305,18 @@ static void downloaded() {
 
 static void save(lv_event_t*) {
   if (!jobs::download(sel)) {
+    toast("Busy: try again in a moment.", true);
+  }
+  showProgress();
+}
+
+static void install(lv_event_t* e) {
+  lv_obj_t* l = lv_obj_get_child((lv_obj_t*)lv_event_get_target(e), 0);
+  if (strcmp(lv_label_get_text(l), "Sure? Tap again")) {
+    lv_label_set_text(l, "Sure? Tap again");
+    return;
+  }
+  if (!jobs::install(sel)) {
     toast("Busy: try again in a moment.", true);
   }
   showProgress();
@@ -386,9 +410,24 @@ static void detailPage(lv_obj_t* page) {
     lv_obj_t* b = button(actions, LV_SYMBOL_TRASH "  Delete", erase);
     lv_obj_set_flex_grow(b, 1);
   }
-  lv_obj_t* inst = button(actions, "Install: no FM-1", 0);
+  // installing: on the FM-1 that answered, if the package is for its model
+  shownFm1 = fm1Now();
+  const Fm1Id* id = fm1::known(fm1::current());
+  std::string model = sel.product.substr(0, sel.product.find('_'));
+  const char* why = !id                                        ? "Install: no FM-1"
+                    : sel.product.empty()                      ? "Not an FM-1 package"
+                    : !id->ota() && model != id->model         ? "Not for this device"
+                    : source == HUB && !sel.onSd && !hal::sd() ? "Install: no SD card"
+                                                               : 0;
+  lv_obj_t* inst = button(actions, why ? why : id->ota() ? "Finish install"
+                                                         : "Install",
+                          why ? 0 : install);
   lv_obj_set_flex_grow(inst, 1);
-  lv_obj_add_state(inst, LV_STATE_DISABLED);
+  if (why) {
+    lv_obj_add_state(inst, LV_STATE_DISABLED);
+  } else {
+    lv_obj_add_state(inst, LV_STATE_CHECKED);  // the accent: the thing to do here
+  }
 
   progress = box(page);
   lv_obj_set_style_pad_row(progress, 4, 0);

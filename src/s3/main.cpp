@@ -6,6 +6,7 @@
 #include <lvgl.h>
 
 #include "board.h"
+#include "hal.h"
 #include "ui.h"
 
 #define W 320
@@ -94,8 +95,8 @@ void setup() {
   lv_indev_set_read_cb(in, readTouch);
 
   ui::begin();
-  Serial.printf("fm1buddy: up, %u KB internal RAM free, %u KB PSRAM free\n",
-                (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024), (unsigned)(ESP.getFreePsram() / 1024));
+  hal::log("fm1buddy: up, %u KB internal RAM free, %u KB PSRAM free",
+           (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024), (unsigned)(ESP.getFreePsram() / 1024));
 }
 
 // the serial console (tools/s3.py): "shot" sends the screen (SHOT w h, then w*h RGB565 pixels, little-endian),
@@ -136,6 +137,7 @@ static void console() {
 
 void loop() {
   console();
+  board::bleLoop();
   uint32_t wait = lv_timer_handler();
   delay(wait > 5 ? 5 : wait);
 }

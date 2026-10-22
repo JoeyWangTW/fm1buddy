@@ -18,29 +18,48 @@ It has two modes, on the left, and the settings:
 - **Firmware** (the download icon) has two lists. **SD card** lists the `.fwsc` packages in the card's `fm1` folder.
   **Hub** lists the [FM-1 Firmware Hub](https://thefirmwarehub.com)'s firmwares: filter them by kind (synth, groove,
   drums, ...), and sort them by stars, date or name. Tap one to see what it is (its description, author, version,
-  stars, installs, size, and the device it's for), and **Save to SD** to download it into `fm1`. Each download is
-  checked (its size, sha256, and the device in the package's own header) before it's kept. The Hub's list is kept on
-  the card (`fm1buddy/hub.json`), so it works offline; it's fetched again the first time you open **Hub** after
-  power-on (with its ETag, so only when it changed), or when you tap the refresh button.
-- **MIDI** (the note icon): what is plugged in, and Bluetooth MIDI, which is off until you turn it on there.
+  stars, installs, size, and the device it's for). **Save to SD** downloads it into `fm1`; **Install** (tap it twice)
+  installs it on the FM-1 on the hub, downloading it first if it isn't on the card. Each download is checked (its size,
+  sha256, and the device in the package's own header) before it's kept. Keep the FM-1 plugged in until it says
+  _Installed_; if an install is cut off, the FM-1 waits in update mode, and **Finish install** writes it. The Hub's
+  list is kept on the card (`fm1buddy/hub.json`), so it works offline; it's fetched again the first time you open
+  **Hub** after power-on (with its ETag, so only when it changed), or when you tap the refresh button.
+- **MIDI** (the note icon): what's on the hub, each with a light when it plays and the last thing it sent. Whatever any
+  of them plays goes to all the others, so a controller plays the FM-1 (except while installing). **Bluetooth MIDI** is
+  off until you turn it on here (then it stays on after power-off): phones, tablets and computers connect to
+  `fm1buddy`, and Bluetooth MIDI keyboards and synths around are listed: tap one to connect it (it's remembered, and
+  connected again whenever it's around; tap it again to forget it). Up to 3 Bluetooth connections.
 - **Settings** (the gear): Wi-Fi (scan, pick a network, type its password), the theme (the same color themes as
   [FOMAJAM](https://github.com/konsumer/fomajam): one for each FM-1 color, plus WHITE and NEON), the screen's brightness,
   whether to update the Hub's list on its own, and what's on the SD card.
 
-Wi-Fi is only on while it's needed: while the Hub's list or a firmware downloads (and while you set it up). The icon on
-the left shows when it's on.
+Wi-Fi is only on while it's needed: while the Hub's list or a firmware downloads (and while you set it up). Bluetooth
+stops while Wi-Fi is on (both don't fit in the internal RAM) and starts again after. The icons on the left show what's
+on; **FM-1** lights up when an FM-1 on the hub has said who it is (yellow: it's in update mode).
 
-**Being rebuilt.** This is a fresh start, interface first. What's next:
+### Plugging it in
 
-1. **Installing firmware on the FM-1** (the button is there, but greyed out): the USB-C port becomes the USB host
-   (through an OTG adapter with a charging port, to a hub), with the FM-1's update protocol (`src/common/fm1ota.cpp`).
-2. **MIDI:** USB controllers to the FM-1, then Bluetooth MIDI (opt-in).
+The USB-C port is the USB host: through a **USB-C OTG adapter with a charging port** (look for one sold for the
+Chromecast with Google TV: it passes charging and data at the same time), to a hub, with a charger or power bank on
+the adapter's charging port. The board can't power its USB-C port itself, so the hub needs that charger (or a powered
+hub).
 
-For now the USB-C port is a normal USB serial port: plug it into a computer to flash it, no BOOT button needed.
+```
+controller ─┐
+            ├─ USB hub ── OTG adapter ── CYD-S3
+FM-1 ───────┘                 │
+                  charger ────┘ (its charging port)
+```
+
+When it starts plugged into a **computer** instead, it stays a USB serial port, for flashing and its log (no BOOT
+button needed). On the hub, its log goes to `fm1buddy/log.txt` on the SD card.
+
+The S3's USB has 8 channels: the hub takes 2, and each device 3, so **two devices on the hub**: the FM-1 and one
+controller. The RGB LED on the back flashes with USB MIDI.
 
 ### Flashing
 
-With [PlatformIO](https://platformio.org):
+With [PlatformIO](https://platformio.org), the board on the computer:
 
 ```sh
 pio run -e cyd-s3 -t upload
@@ -59,7 +78,9 @@ pio run -e sim && .pio/build/sim/program
 ```
 
 The mouse is the finger. Its SD card is the `sim/sd` folder (or `$FM1_SD`), and its settings are in `sim/`. Wi-Fi is
-pretend (any password works, but "wrong"); the internet is real. For screenshots and tests it also runs headless, from
+pretend (any password works, but "wrong"); the internet is real. `--fm1` puts a pretend FM-1 on the hub, which goes
+through a whole install (its update loader and all), and `--keys` a keyboard that plays now and then; Bluetooth is
+pretend too. For screenshots and tests it also runs headless, from
 a script:
 
 ```sh
@@ -237,12 +258,15 @@ src/app/             the CYD-S3's app, on LVGL 9: the same code on the board and
   ui.cpp             the frame: the theme, the rail on the left, pages, watching the jobs
   page_*.cpp         the pages: firmware, MIDI, settings
   catalog.cpp        the Hub's list (catalog.json) and the SD card's /fm1
-  jobs.cpp           the slow things (Wi-Fi, downloads), on a thread of their own
-  hal.h              what the app needs from the board: SD, settings, Wi-Fi, HTTPS, threads
+  jobs.cpp           the slow things (Wi-Fi, downloads, installing), on a thread of their own
+  midi.cpp           the devices, and MIDI between them
+  fm1.cpp            the FM-1's update protocol, and asking devices who they are
+  hal.h              what the app needs from the board: SD, settings, Wi-Fi, HTTPS, USB, Bluetooth, threads
   themes.h           the color themes (FOMAJAM's)
-src/s3/              the CYD-S3: the screen and touch for LVGL, and hal.h (SD_MMC, NVS, Wi-Fi, esp_http_client)
-src/sim/             the simulator: SDL2, and hal.h with a folder for the SD card and libcurl
-src/common/          the RP2040 boxes' routing and mapping, their link, the FM-1 update protocol
+src/s3/              the CYD-S3: the screen and touch for LVGL, and hal.h (SD_MMC, NVS, Wi-Fi, esp_http_client),
+                     the USB host (usb_s3.cpp) and Bluetooth MIDI (ble_s3.cpp, NimBLE)
+src/sim/             the simulator: SDL2, hal.h with a folder for the SD card and libcurl, pretend devices
+src/common/          the RP2040 boxes' routing and mapping, their link, their FM-1 update protocol
 src/feather/         the Feather box (host.cpp), its USB drive and OLED screen
 src/pico/            the ultra-light box (RP2040-Zero): its main, the USB stick
 lib/Pico-PIO-USB/    Pico-PIO-USB 0.7.2 (MIT), here so PlatformIO doesn't pull a second TinyUSB in with it
@@ -251,10 +275,10 @@ tools/pi-setup.sh    the Raspberry Pi box
 case/                the 3D-printed cases (OpenSCAD); tools/cases.sh makes their STLs
 ```
 
-On the CYD-S3, LVGL's memory and the app's lists are in PSRAM: the internal RAM is kept for Wi-Fi (and the USB host
-and Bluetooth, next). HTTPS uses ESP-IDF's certificate bundle.
+On the CYD-S3, LVGL's memory, the app's lists, MIDI's buffers and TLS's are in PSRAM: the internal RAM is kept for
+Wi-Fi, the USB host and Bluetooth. HTTPS uses ESP-IDF's certificate bundle.
 
-`src/common/fm1ota.cpp` is the FM-1's update protocol (M-UPGRADE compatible), ported from foma's `web/fm1ota.js`: the
+`src/app/fm1.cpp` (and `src/common/fm1ota.cpp`, for the RP2040 boxes) is the FM-1's update protocol (M-UPGRADE compatible), ported from foma's `web/fm1ota.js`: the
 FM-1 asks for parts of the package with SysEx read requests, and the box answers each one straight from storage. First
 the running firmware checks the package and starts the update loader; then the loader (a new USB device, `ota-...`)
 reads the whole image and writes it.

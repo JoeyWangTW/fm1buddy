@@ -5,6 +5,7 @@
 #include <strings.h>
 #include <sys/stat.h>
 
+#include "fm1.h"
 #include "settings.h"
 
 namespace jobs {
@@ -28,7 +29,7 @@ static void progress(uint32_t d, uint32_t t) {
   total = t;
 }
 
-static const char* NAMES[] = {"none", "hub", "download", "scan", "join"};
+static const char* NAMES[] = {"none", "hub", "download", "scan", "join", "install"};
 
 static bool start(Kind k, void (*fn)(void*)) {
   if (running) {
@@ -113,13 +114,14 @@ static void hubJob(void*) {
   finish(catalog::parseHub(hub, hubUpdated, error));
 }
 
-static void downloadJob(void*) {
+// target from the Hub into /fm1: false (error says why)
+static bool fetch() {
   if (!hal::sd()) {
     error = "No SD card.";
-    return finish(false);
+    return false;
   }
   if (!joinSaved()) {
-    return finish(false);
+    return false;
   }
   mkdirs();
   step = FETCHING;
@@ -132,7 +134,7 @@ static void downloadJob(void*) {
     if (code > 0) {
       error = "The Hub said " + std::to_string(code) + ".";
     }
-    return finish(false);
+    return false;
   }
   step = CHECKING;
   struct stat st;
@@ -144,10 +146,38 @@ static void downloadJob(void*) {
   } else if (catalog::product(p.c_str()) != target.product) {
     error = "The package isn't for the device the Hub says.";
   } else {
-    return finish(true);
+    return true;
   }
   remove(p.c_str());
-  finish(false);
+  return false;
+}
+
+static void downloadJob(void*) {
+  finish(fetch());
+}
+
+static void installProgress(Fm1Step s, uint32_t, uint32_t addr) {
+  static const Step STEPS[] = {ASKING, VERIFYING, LOADER, WRITING, RESTARTING, RESTARTING};
+  step = STEPS[s];
+  done = s == STEP_WRITE ? addr : 0;
+}
+
+static void installJob(void*) {
+  if (!target.onSd && !fetch()) {
+    return finish(false);
+  }
+  Pkg pkg;
+  if (!pkg.open(catalog::path(std::string(FW_DIR "/") + target.file).c_str())) {
+    error = "That isn't an FM-1 package.";
+    return finish(false);
+  }
+  total = pkg.size;
+  step = ASKING;
+  const char* e = fm1::install(pkg, installProgress);
+  if (e) {
+    error = e;
+  }
+  finish(!e);
 }
 
 static void scanJob(void*) {
@@ -176,6 +206,14 @@ bool jobs::download(const Firmware& f) {
   return start(DOWNLOAD, downloadJob);
 }
 
+bool jobs::install(const Firmware& f) {
+  if (running) {
+    return false;
+  }
+  target = f;
+  return start(INSTALL, installJob);
+}
+
 bool jobs::scan() {
   return start(SCAN, scanJob);
 }
@@ -197,11 +235,27 @@ std::string jobs::status() {
       if (kind == HUB) {
         return "Getting the Hub's list...";
       }
+      if (kind == INSTALL) {
+        uint32_t t = total, d = done;
+        return "Downloading" + (t ? " " + std::to_string((unsigned long long)d * 100 / t) + "%" : std::string("..."));
+      }
       uint32_t t = total, d = done;
       return t ? "Downloading " + std::to_string((unsigned long long)d * 100 / t) + "%" : "Downloading...";
     }
     case CHECKING:
       return "Checking it...";
+    case ASKING:
+      return "Looking for the FM-1...";
+    case VERIFYING:
+      return "The FM-1 is checking the package...";
+    case LOADER:
+      return "The FM-1 is starting its update loader...";
+    case WRITING: {
+      uint32_t t = total, d = done;
+      return "Writing " + std::to_string(t ? (unsigned long long)d * 100 / t : 0) + "%: keep the FM-1 plugged in";
+    }
+    case RESTARTING:
+      return "The FM-1 is restarting...";
     case READING:
       return "Reading the list...";
   }

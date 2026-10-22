@@ -2,6 +2,7 @@
 #include "ui.h"
 
 #include "catalog.h"
+#include "fm1.h"
 #include "hal.h"
 #include "jobs.h"
 #include "src/themes/lv_theme_private.h"
@@ -249,9 +250,16 @@ void ui::toast(const char* text, bool bad) {
 static void railStatus() {
   const Theme& t = theme();
   lv_obj_set_style_text_color(stSd, color(hal::sd() ? t.dim : t.knob[0]), 0);
-  bool wifi = hal::wifiOn() || (jobs::running && jobs::kind != jobs::SCAN);
+  bool wifi = hal::wifiOn() || (jobs::running && (jobs::step == jobs::JOINING || jobs::step == jobs::FETCHING));
   lv_obj_set_style_text_color(stWifi, color(wifi ? t.accent : t.dim), 0);
   lv_obj_set_style_opa(stWifi, wifi ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+  lv_obj_set_style_text_color(stBt, color(t.accent), 0);
+  lv_obj_set_style_opa(stBt, hal::bleIsOn() ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+  int d = fm1::current();
+  const Fm1Id* id = fm1::known(d);
+  lv_obj_set_style_text_color(stFm1, color(!id ? t.dim : id->ota() ? t.knob[1]
+                                                                   : t.accent),
+                              0);
 }
 
 static void markTab() {
@@ -275,6 +283,7 @@ void ui::fullscreen(bool on) {
 }
 
 void ui::go(Builder b) {
+  hal::bleSearch(false);  // only while the MIDI page shows
   tick = 0;
   jobDone = 0;
   current = b;
@@ -345,7 +354,7 @@ static void watch(lv_timer_t*) {
       std::vector<Firmware>().swap(jobs::hub);  // the old list
       catalog::hubUpdated = jobs::hubUpdated;
       catalog::scanSd();
-    } else if (jobs::ok && jobs::kind == jobs::DOWNLOAD) {
+    } else if (jobs::kind == jobs::DOWNLOAD || jobs::kind == jobs::INSTALL) {
       catalog::scanSd();
     }
     if (jobDone) {
@@ -353,6 +362,7 @@ static void watch(lv_timer_t*) {
     }
   }
   wasRunning = jobs::running;
+  fm1::watch();
   if (tick) {
     tick();
   }
@@ -372,6 +382,10 @@ void ui::rebuild() {
 void ui::begin() {
   settingsLoad();
   hal::backlight(settings.brightness);
+  bool bt = false;
+  if (hal::load("bluetooth", &bt, 1) && bt) {
+    hal::bleOn(true);
+  }
   std::string err;
   catalog::parseHub(catalog::hub, catalog::hubUpdated, err);
   catalog::scanSd();

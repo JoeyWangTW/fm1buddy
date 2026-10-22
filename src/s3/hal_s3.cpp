@@ -6,26 +6,55 @@
 #include <WiFi.h>
 #include <esp_crt_bundle.h>
 #include <esp_http_client.h>
+#include <mbedtls/platform.h>
 #include <mbedtls/sha256.h>
+#include <sys/stat.h>
 
 #include <algorithm>
 
 #include "board.h"
 #include "hal.h"
 
-static bool sdOk;
+static bool sdOk, logToSd;
+#define LOG_FILE "/sdcard/fm1buddy/log.txt"
 static volatile bool wifiUp, radio;
 
 void board::begin() {
   // the app's lists and strings go to PSRAM: the internal RAM is for Wi-Fi (and soon USB and Bluetooth)
   heap_caps_malloc_extmem_enable(256);
+  // and TLS's buffers (about 40 KB a connection): with Bluetooth on, the internal RAM can't spare them
+  mbedtls_platform_set_calloc_free(
+      [](size_t n, size_t size) {
+        void* p = heap_caps_calloc(n, size, MALLOC_CAP_SPIRAM);
+        return p ? p : heap_caps_calloc(n, size, MALLOC_CAP_INTERNAL);
+      },
+      free);
 #ifdef LED_RGB
   rgbLedWrite(LED_RGB, 0, 0, 0);
 #endif
   SD_MMC.setPins(SD_CLK, SD_CMD, SD_D0, SD_D1, SD_D2, SD_D3);
   sdOk = SD_MMC.begin("/sdcard", false);
-  Serial.printf("sd: %s\n", sdOk ? "mounted" : "none");
   WiFi.mode(WIFI_OFF);
+  // a computer on the USB-C port (it sends start-of-frames): stay its serial port. Else: the USB host, and the log
+  // goes to the SD card
+  bool computer = false;
+  for (uint32_t t = millis(); millis() - t < 1500 && !computer; delay(10)) {
+    computer = HWCDC::isPlugged();
+  }
+  if (!computer) {
+    Serial.end();
+    if (sdOk) {
+      mkdir("/sdcard/fm1buddy", 0777);
+      if (FILE* f = fopen(LOG_FILE, "w")) {
+        fclose(f);
+        logToSd = true;
+      }
+    }
+  }
+  hal::log("fm1buddy: sd %s, usb %s", sdOk ? "mounted" : "none", computer ? "serial (a computer)" : "host");
+  if (!computer) {
+    usbHostBegin();
+  }
 }
 
 uint32_t hal::millis() {
@@ -38,7 +67,12 @@ void hal::log(const char* fmt, ...) {
   va_start(a, fmt);
   vsnprintf(buf, sizeof buf, fmt, a);
   va_end(a);
-  Serial.println(buf);
+  if (!logToSd) {
+    Serial.println(buf);
+  } else if (FILE* f = fopen(LOG_FILE, "a")) {
+    fprintf(f, "%7.1f %s\n", ::millis() / 1000.0, buf);
+    fclose(f);
+  }
 }
 
 const char* hal::sd() {
@@ -80,6 +114,7 @@ void hal::backlight(uint8_t percent) {
 
 // --------------------------------------------------------------------------------------------- Wi-Fi ---
 bool hal::wifiScan(std::vector<Ap>& out) {
+  board::blePause(true);  // both don't fit
   radio = true;
   WiFi.mode(WIFI_STA);
   int n = WiFi.scanNetworks();
@@ -103,6 +138,7 @@ bool hal::wifiScan(std::vector<Ap>& out) {
 
 bool hal::wifiJoin(const char* ssid, const char* pass, std::string& err) {
   hal::log("wifi: %u KB internal RAM free", (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024));
+  board::blePause(true);
   radio = true;
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, pass);
@@ -131,6 +167,7 @@ void hal::wifiOff() {
   radio = false;
   WiFi.disconnect(true);
   WiFi.mode(WIFI_OFF);
+  board::blePause(false);
 }
 
 bool hal::wifiOn() {
@@ -185,11 +222,11 @@ int hal::get(const char* url, const char* path, std::string* etag, void (*progre
       status = -1;
       break;
     }
-    static char buf[4096];
+    static char* buf = (char*)malloc(4096);  // PSRAM
     uint32_t got = 0;
     bool ok = true;
     for (;;) {
-      int n = esp_http_client_read(h, buf, sizeof buf);
+      int n = esp_http_client_read(h, buf, 4096);
       if (n < 0) {
         err = "The download stopped part way.";
         ok = false;
@@ -239,8 +276,8 @@ bool hal::sha256(const char* path, char hex[65]) {
   mbedtls_sha256_context ctx;
   mbedtls_sha256_init(&ctx);
   mbedtls_sha256_starts(&ctx, 0);
-  static uint8_t buf[4096];
-  for (size_t n; (n = fread(buf, 1, sizeof buf, f));) {
+  static uint8_t* buf = (uint8_t*)malloc(4096);  // PSRAM
+  for (size_t n; (n = fread(buf, 1, 4096, f));) {
     mbedtls_sha256_update(&ctx, buf, n);
   }
   fclose(f);
