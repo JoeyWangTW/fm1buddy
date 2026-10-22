@@ -8,6 +8,7 @@
 #include <esp_http_client.h>
 #include <mbedtls/platform.h>
 #include <mbedtls/sha256.h>
+#include <soc/rtc_cntl_reg.h>
 #include <sys/stat.h>
 
 #include <algorithm>
@@ -15,7 +16,11 @@
 #include "board.h"
 #include "hal.h"
 
-static bool sdOk, logToSd;
+static bool sdOk, logToSd, computer;
+// the console's "host": the next start is the USB host even with a computer on it, for a while (testing)
+#define HOST_TEST 0x484F5354
+static RTC_NOINIT_ATTR uint32_t hostTest;
+static uint32_t hostTestUntil;
 #define LOG_FILE "/sdcard/fm1buddy/log.txt"
 static volatile bool wifiUp, radio;
 
@@ -35,26 +40,66 @@ void board::begin() {
   SD_MMC.setPins(SD_CLK, SD_CMD, SD_D0, SD_D1, SD_D2, SD_D3);
   sdOk = SD_MMC.begin("/sdcard", false);
   WiFi.mode(WIFI_OFF);
-  // a computer on the USB-C port (it sends start-of-frames): stay its serial port. Else: the USB host, and the log
-  // goes to the SD card
-  bool computer = false;
-  for (uint32_t t = millis(); millis() - t < 1500 && !computer; delay(10)) {
+  // a computer on the USB-C port (it sends start-of-frames): stay its serial port. Else: the USB host
+  // (board::usbBegin), and the log goes to the SD card
+  bool test = hostTest == HOST_TEST;
+  hostTest = 0;
+  for (uint32_t t = millis(); !test && millis() - t < 1500 && !computer; delay(10)) {
     computer = HWCDC::isPlugged();
   }
-  if (!computer) {
-    Serial.end();
-    if (sdOk) {
-      mkdir("/sdcard/fm1buddy", 0777);
-      if (FILE* f = fopen(LOG_FILE, "w")) {
-        fclose(f);
-        logToSd = true;
-      }
+  if (!computer && sdOk) {
+    mkdir("/sdcard/fm1buddy", 0777);
+    if (FILE* f = fopen(LOG_FILE, "w")) {
+      fclose(f);
+      logToSd = true;
     }
   }
-  hal::log("fm1buddy: sd %s, usb %s", sdOk ? "mounted" : "none", computer ? "serial (a computer)" : "host");
-  if (!computer) {
-    usbHostBegin();
+  if (test) {
+    hostTestUntil = millis() + 20000;
   }
+  hal::log("fm1buddy: sd %s, usb %s%s, last reset: %d", sdOk ? "mounted" : "none",
+           computer ? "serial (a computer)" : "host", test ? " (a test: 20 s)" : "", (int)esp_reset_reason());
+}
+
+// the USB port back to the serial port: a restart (esp_restart) keeps the host's choice, and a computer on it
+// then wouldn't find the board until it's reset by its button
+static void phyToSerial() {
+  CLEAR_PERI_REG_MASK(RTC_CNTL_USB_CONF_REG, RTC_CNTL_SW_HW_USB_PHY_SEL_M | RTC_CNTL_SW_USB_PHY_SEL_M);
+}
+
+void board::usbBegin() {
+  if (computer) {
+    return;
+  }
+  esp_register_shutdown_handler(phyToSerial);
+  hal::log("usb: serial off");
+  Serial.end();
+  usbHostBegin();
+}
+
+void board::loop() {
+  if (hostTestUntil && (int32_t)(millis() - hostTestUntil) >= 0) {
+    hal::log("usb: the test is over: restarting");
+    esp_restart();
+  }
+}
+
+void board::hostTestStart() {
+  hostTest = HOST_TEST;
+  esp_restart();
+}
+
+void board::printLog() {
+  FILE* f = fopen(LOG_FILE, "r");
+  if (!f) {
+    Serial.println("no log");
+    return;
+  }
+  char line[200];
+  while (fgets(line, sizeof line, f)) {
+    Serial.print(line);
+  }
+  fclose(f);
 }
 
 uint32_t hal::millis() {

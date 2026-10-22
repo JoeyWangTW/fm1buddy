@@ -92,6 +92,8 @@ On the board, `tools/s3.py` does the same over its USB serial port (with Platfor
 ```sh
 ~/.platformio/penv/bin/python tools/s3.py shot screen.bmp
 ~/.platformio/penv/bin/python tools/s3.py tap 24 116
+~/.platformio/penv/bin/python tools/s3.py host   # the USB host for 20 s, then back
+~/.platformio/penv/bin/python tools/s3.py log    # what it logged meanwhile
 ```
 
 `pio run -e sim -t compiledb` makes `compile_commands.json` for editors (clangd).

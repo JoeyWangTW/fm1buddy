@@ -21,7 +21,11 @@
 
 #define LV_USE_LOG 1
 #define LV_LOG_LEVEL LV_LOG_LEVEL_WARN
+#ifdef ESP_PLATFORM
+#define LV_LOG_PRINTF 0  // the board logs it (hal::log)
+#else
 #define LV_LOG_PRINTF 1
+#endif
 
 #define LV_FONT_MONTSERRAT_12 1
 #define LV_FONT_MONTSERRAT_14 1

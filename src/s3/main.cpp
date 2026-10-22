@@ -76,14 +76,16 @@ void setup() {
   Serial.begin(115200);
   board::begin();
 
+  hal::log("boot: screen");
   tft.init();
   tft.setRotation(1);
   tft.fillScreen(TFT_BLACK);
   touchBegin();
 
+  hal::log("boot: lvgl");
   lv_init();
   lv_tick_set_cb(tick);
-  lv_log_register_print_cb([](lv_log_level_t, const char* s) { Serial.print(s); });
+  lv_log_register_print_cb([](lv_log_level_t, const char* s) { hal::log("%s", s); });
   lv_display_t* disp = lv_display_create(W, H);
   const size_t n = W * 40 * 2;
   void* a = heap_caps_malloc(n, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
@@ -94,17 +96,20 @@ void setup() {
   lv_indev_set_type(in, LV_INDEV_TYPE_POINTER);
   lv_indev_set_read_cb(in, readTouch);
 
+  hal::log("boot: app");
   ui::begin();
+  board::usbBegin();
   hal::log("fm1buddy: up, %u KB internal RAM free, %u KB PSRAM free",
            (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024), (unsigned)(ESP.getFreePsram() / 1024));
 }
 
 // the serial console (tools/s3.py): "shot" sends the screen (SHOT w h, then w*h RGB565 pixels, little-endian),
-// "tap x y" touches it for a moment
+// "tap x y" touches it for a moment, "log" prints the SD card's log, "host" restarts as the USB host for 20 s
 static void console() {
   static char line[32];
   static uint8_t n;
-  while (Serial.available()) {
+  // > 0: once the port is the USB host (Serial.end()), available() says -1
+  while (!hal::usbHost() && Serial.available() > 0) {
     char c = Serial.read();
     if (c != '\n' && c != '\r') {
       if (n < sizeof line - 1) {
@@ -115,7 +120,11 @@ static void console() {
     line[n] = 0;
     n = 0;
     int x, y;
-    if (!strcmp(line, "shot")) {
+    if (!strcmp(line, "log")) {
+      board::printLog();
+    } else if (!strcmp(line, "host")) {
+      board::hostTestStart();
+    } else if (!strcmp(line, "shot")) {
       lv_draw_buf_t* d = lv_snapshot_take(lv_screen_active(), LV_COLOR_FORMAT_RGB565);
       if (d) {
         Serial.printf("SHOT %d %d\n", W, H);
@@ -137,6 +146,7 @@ static void console() {
 
 void loop() {
   console();
+  board::loop();
   board::bleLoop();
   uint32_t wait = lv_timer_handler();
   delay(wait > 5 ? 5 : wait);

@@ -3,6 +3,8 @@
 #
 #   tools/s3.py shot out.bmp     the screen, as a .bmp
 #   tools/s3.py tap X Y          touch it at X, Y (320x240, landscape)
+#   tools/s3.py log              print its log on the SD card (from when it was the USB host)
+#   tools/s3.py host             restart it as the USB host for 20 s (then it's back here): to test that
 #
 # Needs pyserial (PlatformIO has it: ~/.platformio/penv/bin/python tools/s3.py ...). The port: $PORT, or the first
 # /dev/cu.usbmodem* or /dev/ttyACM*.
@@ -47,11 +49,28 @@ def tap(x, y):
     s.flush()
     time.sleep(0.3)  # it goes out before the port closes
 
+def command(line, secs):
+    s = port()
+    s.write(line.encode() + b'\n')
+    s.flush()
+    end = time.time() + secs
+    while time.time() < end:
+        try:
+            d = s.read(4096)
+        except serial.SerialException:
+            break
+        if d:
+            sys.stdout.write(d.decode('utf-8', 'replace'))
+
 if __name__ == '__main__':
     a = sys.argv[1:]
     if a[:1] == ['shot'] and len(a) == 2:
         shot(a[1])
     elif a[:1] == ['tap'] and len(a) == 3:
         tap(int(a[1]), int(a[2]))
+    elif a == ['log']:
+        command('log', 2)
+    elif a == ['host']:
+        command('host', 0.5)
     else:
-        sys.exit(__doc__ if __doc__ else 'tools/s3.py shot FILE | tap X Y')
+        sys.exit('tools/s3.py shot FILE | tap X Y | log | host')
