@@ -6,3 +6,4 @@ site/fw/
 src/idf_component.yml*
 sim/
 compile_commands.json
+.cache/
