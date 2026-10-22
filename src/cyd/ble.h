@@ -31,6 +31,7 @@ extern int count;
 void begin(bool on);
 void setOn(bool on);
 bool isOn();
+void pause(bool on);                                 // stop the stack while Wi-Fi is on (it needs the memory), and start it again
 void pump();                                         // often (in hub.poll): what came in goes to the box, what the box sent goes out
 void loop();                                         // in the main loop: connecting, scanning
 void send(uint8_t d, const uint8_t* p, uint32_t n);  // MIDI from the box for device d (hub.own)

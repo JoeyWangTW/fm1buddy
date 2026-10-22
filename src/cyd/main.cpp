@@ -370,6 +370,7 @@ static void show(Page p) {
   }
   if (p == FILES || p == CONFIRM) {
     WiFi.mode(WIFI_OFF);
+    ble::pause(false);
   }
   ble::search(p == BT);
   page = p;
@@ -581,6 +582,7 @@ static void runDownload() {
 }
 
 static void wifiScan() {
+  ble::pause(true);
   busy("Looking for Wi-Fi networks...");
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
@@ -681,6 +683,7 @@ static void goOnline() {
     wifiScan();
     return;
   }
+  ble::pause(true);
   char s[64];
   snprintf(s, sizeof s, "Joining %s...", ssid);
   busy(s);
@@ -691,7 +694,7 @@ static void goOnline() {
   }
   busy("Reading the Firmware Hub's catalogue...");
   int d = fm1::current();
-  err = fwhub::fetch(d >= 0 ? fm1::known(d) : 0);
+  err = fwhub::fetch(d >= 0 ? fm1::known(d) : 0, SD);
   if (err) {
     message("No catalogue", err, FILES);
     return;
