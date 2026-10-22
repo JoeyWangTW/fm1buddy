@@ -41,11 +41,16 @@ struct Slot {
   uint8_t q[SYSEX_Q][SYSEX_MAX];
   uint8_t qn[SYSEX_Q];
   uint32_t qw, qr;
+  std::vector<uint8_t>* cap;  // capture: everything, and the message so far
+  uint32_t capDone;           // its complete messages end here
 };
 // on the heap (PSRAM, on the S3: big blocks go there)
 static Slot* slots = new Slot[MIDI_DEVS]();
 
+#define CAP_MAX (1024 * 1024)
+
 static void reset(Slot& s) {
+  delete s.cap;
   memset(&s, 0, sizeof s);
 }
 
@@ -85,7 +90,25 @@ static void push(Slot& s, const uint8_t p[4]) {
   }
 }
 
+static void captureByte(Slot& s, uint8_t b) {
+  auto& c = *s.cap;
+  if (b == 0xF0) {
+    c.resize(s.capDone);  // an unfinished one before it
+  } else if (c.size() == s.capDone) {
+    return;  // not in a SysEx
+  }
+  if (c.size() < CAP_MAX) {
+    c.push_back(b);
+  }
+  if (b == 0xF7) {
+    s.capDone = c.size();
+  }
+}
+
 static void sysexByte(Slot& s, uint8_t b) {
+  if (s.cap) {
+    captureByte(s, b);
+  }
   if (b == 0xF0) {
     s.curOn = true;
     s.curN = 0;
@@ -316,6 +339,29 @@ void midi::drain(int d) {
   }
   std::lock_guard<std::mutex> g(lock);
   slots[d].qr = slots[d].qw;
+}
+
+void midi::capture(int d, bool on) {
+  if (d < 0 || d >= MIDI_DEVS) {
+    return;
+  }
+  std::lock_guard<std::mutex> g(lock);
+  Slot& s = slots[d];
+  delete s.cap;
+  s.cap = on ? new std::vector<uint8_t>() : 0;
+  s.capDone = 0;
+}
+
+void midi::captured(int d, std::vector<uint8_t>& out) {
+  out.clear();
+  if (d < 0 || d >= MIDI_DEVS) {
+    return;
+  }
+  std::lock_guard<std::mutex> g(lock);
+  Slot& s = slots[d];
+  if (s.cap) {
+    out.assign(s.cap->begin(), s.cap->begin() + s.capDone);
+  }
 }
 
 void midi::describe(const uint8_t m[3], char* out, int n) {

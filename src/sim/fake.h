@@ -4,4 +4,6 @@
 
 namespace fake {
 void begin(bool fm1, bool keys, bool faults);
-}
+// the FM-1 sends a DX7 bank (as from its menu)
+void dump();
+}  // namespace fake

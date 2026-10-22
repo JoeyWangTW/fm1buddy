@@ -21,19 +21,22 @@ std::string error;
 std::vector<hal::Ap> aps;
 std::vector<Firmware> hub;
 std::string hubUpdated;
+int device = -1;
+sounds::Speaks speaks;
+std::string saved;
 }  // namespace jobs
 
 using namespace jobs;
 
 static Firmware target;
-static std::string ssid, pass;
+static std::string ssid, pass, syxFile;
 
 static void progress(uint32_t d, uint32_t t) {
   done = d;
   total = t;
 }
 
-static const char* NAMES[] = {"none", "hub", "download", "scan", "join", "install"};
+static const char* NAMES[] = {"none", "hub", "download", "scan", "join", "install", "probe", "send", "voice"};
 
 static bool start(Kind k, void (*fn)(void*)) {
   if (running) {
@@ -264,6 +267,66 @@ bool jobs::install(const Firmware& f) {
   return start(INSTALL, installJob);
 }
 
+static void probeJob(void*) {
+  step = ASKING_IT;
+  sounds::probe(device, speaks);
+  finish(true);
+}
+
+static void sendJob(void*) {
+  std::vector<uint8_t> data;
+  if (!sounds::load(syxFile, data)) {
+    error = "Can't read it from the SD card.";
+    return finish(false);
+  }
+  step = SENDING;
+  total = data.size();
+  if (const char* e = sounds::send(device, data, progress)) {
+    error = e;
+    return finish(false);
+  }
+  finish(true);
+}
+
+static void voiceJob(void*) {
+  step = ASKING_IT;
+  std::vector<uint8_t> syx;
+  if (const char* e = sounds::readVoice(device, syx)) {
+    error = e;
+    return finish(false);
+  }
+  saved = sounds::save(syx, "voice");
+  if (saved.empty()) {
+    error = "Can't write it to the SD card.";
+  }
+  finish(!saved.empty());
+}
+
+bool jobs::probe(int d) {
+  if (running) {
+    return false;
+  }
+  device = d;
+  return start(PROBE, probeJob);
+}
+
+bool jobs::send(int d, const std::string& file) {
+  if (running) {
+    return false;
+  }
+  device = d;
+  syxFile = file;
+  return start(SEND, sendJob);
+}
+
+bool jobs::voice(int d) {
+  if (running) {
+    return false;
+  }
+  device = d;
+  return start(VOICE, voiceJob);
+}
+
 bool jobs::scan() {
   return start(SCAN, scanJob);
 }
@@ -308,6 +371,12 @@ std::string jobs::status() {
       return "The FM-1 is restarting...";
     case READING:
       return "Reading the list...";
+    case SENDING: {
+      uint32_t t = total, d = done;
+      return "Sending " + std::to_string(t ? (unsigned long long)d * 100 / t : 0) + "%...";
+    }
+    case ASKING_IT:
+      return "Asking it...";
   }
   return kind == SCAN && running ? "Looking for networks..." : "";
 }
