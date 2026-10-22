@@ -33,7 +33,7 @@ Bluetooth and a USB-C port that can be a USB host: nothing to put together.
 
 ## The CYD-S3
 
-A [Freenove ESP32-S3 Display, 2.8", with touch](https://github.com/Freenove/Freenove_ESP32_S3_Display) (FNK0104B; the
+A [Freenove ESP32-S3 Display, 2.8", with touch](https://store.freenove.com/products/fnk0104?variant=45040270213318) ([FNK0104B](https://github.com/Freenove/Freenove_ESP32_S3_Display); the
 same board as LCDwiki's ES3C28P): an ILI9341 320x240 screen, capacitive touch, a microSD slot, and an ESP32-S3 with
 8 MB of PSRAM.
 
