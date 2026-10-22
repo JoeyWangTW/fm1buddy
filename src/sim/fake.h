@@ -3,10 +3,15 @@
 // FM-1 runs fomajam: it shares its song (sounds.h setups)
 #pragma once
 
+#include <stdint.h>
+
 namespace fake {
 void begin(bool fm1, bool keys, bool faults, bool fomajam = false);
 // the FM-1 sends a DX7 bank (as from its menu)
 void dump();
 // fomajam: start or stop playing (it won't load a song while it plays)
 void play();
+// its boot loader, as a USB storage device (hal.h storageThere, storageCommand)
+bool storageThere(uint16_t vid, uint16_t pid);
+bool storage(const uint8_t* cdb, uint8_t cdbLen, bool in, uint8_t* buf, uint32_t len, uint32_t* got);
 }  // namespace fake

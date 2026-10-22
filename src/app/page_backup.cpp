@@ -1,0 +1,128 @@
+// Backup (from Settings): all of the FM-1's flash to the SD card, through its boot loader (uboot.h): the firmware, and
+// everything the firmwares keep on it. Only reading: nothing on the FM-1 changes
+#include <dirent.h>
+#include <stdio.h>
+#include <string.h>
+#include <strings.h>
+#include <sys/stat.h>
+
+#include <algorithm>
+
+#include "fm1.h"
+#include "hal.h"
+#include "jobs.h"
+#include "midi.h"
+#include "uboot.h"
+#include "ui_priv.h"
+
+using namespace ui;
+
+static lv_obj_t* status;
+static uint32_t shownSeq;
+
+static void backedUp() {
+  if (jobs::kind != jobs::BACKUP) {
+    return;
+  }
+  toast(jobs::ok ? ("Saved as " BACKUPS_DIR "/" + jobs::saved + ".").c_str() : jobs::error.c_str(), !jobs::ok);
+  go(backupPage);
+}
+
+static void backupTapped(lv_event_t*) {
+  int d = fm1::current();
+  if (d < 0) {
+    toast("No FM-1 on the hub.", true);
+  } else if (!jobs::backup(d)) {
+    toast("Busy: try again in a moment.", true);
+  }
+  go(backupPage);
+}
+
+static void backupTick() {
+  if (status) {
+    lv_label_set_text(status, jobs::running ? jobs::status().c_str() : "");
+    lv_obj_update_flag(status, LV_OBJ_FLAG_HIDDEN, !jobs::running);
+  }
+  if (!jobs::running && midi::seq != shownSeq) {
+    go(backupPage);  // a device came or went
+  }
+}
+
+static lv_obj_t* wrapped(lv_obj_t* body, const char* text, uint32_t color) {
+  lv_obj_t* l = label(body, text, &lv_font_montserrat_12, color);
+  lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(l, LV_PCT(100));
+  return l;
+}
+
+void ui::backupPage(lv_obj_t* page) {
+  const Theme& t = theme();
+  header(page, "Back up the FM-1", settingsPage);
+  lv_obj_t* body = scroller(page);
+  lv_obj_set_style_pad_row(body, 4, 0);
+  shownSeq = midi::seq;
+  wrapped(body,
+          "All of its flash, to the SD card: the firmware, and what the firmwares keep on it (settings, projects, "
+          "samples, voices). Nothing on it changes.",
+          t.text);
+  int d = fm1::current();
+  const Fm1Id* id = d >= 0 ? fm1::known(d) : 0;
+  int others = 0;
+  for (int o = 0; o < MIDI_USB; o++) {
+    midi::Dev v;
+    others += o != d && midi::dev(o, v);
+  }
+  lv_obj_t* row = box(body, LV_FLEX_FLOW_ROW);
+  lv_obj_set_style_pad_top(row, 6, 0);
+  lv_obj_t* b = button(row, LV_SYMBOL_SAVE " Back it up", backupTapped);
+  if (jobs::running || d < 0 || others) {
+    lv_obj_add_state(b, LV_STATE_DISABLED);
+  }
+  status = label(body, jobs::running ? jobs::status().c_str() : "", &lv_font_montserrat_14, t.accent);
+  lv_obj_update_flag(status, LV_OBJ_FLAG_HIDDEN, !jobs::running);
+  if (!jobs::running) {
+    std::string what = d < 0    ? "No FM-1 on the hub."
+                       : others ? "Unplug the other USB devices: the FM-1 has to be alone on the hub."
+                       : id     ? std::string("The FM-1 runs ") + id->text + "."
+                                : "The FM-1 is there.";
+    wrapped(body, what.c_str(), d < 0 || others ? t.knob[0] : t.dim);
+  }
+  wrapped(body,
+          "It goes into its boot loader (in the chip: no firmware can break it) and comes back. That works from stock "
+          "V15 and the firmwares like fomajam. The first time, JieLi's loader for it is downloaded (Wi-Fi) from "
+          "jl-uboot-tool.",
+          t.dim);
+
+  // the backups
+  lv_obj_t* h = label(body, "On the SD card (" BACKUPS_DIR ")", &lv_font_montserrat_14, t.text);
+  lv_obj_set_style_pad_top(h, 6, 0);
+  std::vector<std::pair<std::string, uint32_t>> files;
+  std::string dir = catalog::path(BACKUPS_DIR);
+  if (DIR* dd = dir.empty() ? 0 : opendir(dir.c_str())) {
+    while (dirent* e = readdir(dd)) {
+      size_t n = strlen(e->d_name);
+      struct stat st;
+      if (n > 4 && !strcasecmp(e->d_name + n - 4, ".bin") && !stat((dir + "/" + e->d_name).c_str(), &st)) {
+        files.push_back({e->d_name, (uint32_t)st.st_size});
+      }
+    }
+    closedir(dd);
+  }
+  std::sort(files.begin(), files.end(), [](auto& a, auto& b) {
+    long x = atol(a.first.c_str() + 4), y = atol(b.first.c_str() + 4);
+    return x != y ? x > y : a.first > b.first;
+  });
+  for (auto& [name, size] : files) {
+    lv_obj_t* r = box(body, LV_FLEX_FLOW_ROW);
+    lv_obj_t* l = line(r, name.c_str(), &lv_font_montserrat_16, t.text);
+    lv_obj_set_flex_grow(l, 1);
+    char s[16];
+    snprintf(s, sizeof s, "%u KB", (unsigned)(size / 1024));
+    label(r, s, &lv_font_montserrat_12, t.dim);
+  }
+  if (files.empty()) {
+    label(body, hal::sd() ? "None yet." : "No SD card.", &lv_font_montserrat_12, t.dim);
+  }
+  tick = backupTick;
+  jobDone = backedUp;
+}

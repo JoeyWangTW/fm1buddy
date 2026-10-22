@@ -75,6 +75,7 @@ void ui::settingsPage(lv_obj_t* page) {
   }
   lv_obj_add_event_cb(sw, hubAuto, LV_EVENT_VALUE_CHANGED, 0);
 
+  menuRow(body, LV_SYMBOL_SAVE "  Back up the FM-1", 0, backupPage);
   menuRow(body, LV_SYMBOL_SD_CARD "  About", FM1BUDDY_VERSION, aboutPage);
 }
 

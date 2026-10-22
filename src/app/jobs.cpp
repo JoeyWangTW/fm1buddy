@@ -8,9 +8,12 @@
 #include <sys/stat.h>
 
 #include <algorithm>
+#include <chrono>
+#include <thread>
 
 #include "fm1.h"
 #include "settings.h"
+#include "uboot.h"
 
 namespace jobs {
 std::atomic<int> kind{NONE}, step{IDLE};
@@ -37,7 +40,7 @@ static void progress(uint32_t d, uint32_t t) {
   total = t;
 }
 
-static const char* NAMES[] = {"none", "hub", "download", "scan", "join", "install", "probe", "send", "voice", "keep", "restore", "export"};
+static const char* NAMES[] = {"none", "hub", "download", "scan", "join", "install", "probe", "send", "voice", "keep", "restore", "export", "backup"};
 
 static bool start(Kind k, void (*fn)(void*)) {
   if (running) {
@@ -326,6 +329,96 @@ static void restoreJob(void*) {
   finish(true);
 }
 
+// ------------------------------------------------------------------------------------------ backup ---
+static int reading;  // BACKUP: which reading of its flash (it's read twice, and they must be the same)
+
+static void backupJob(void*) {
+  if (!hal::sd()) {
+    error = "No SD card: the backup goes on it.";
+    return finish(false);
+  }
+  mkdirs();
+  if (!uboot::haveLoader()) {  // JieLi's loader: once, from jl-uboot-tool
+    if (!joinSaved()) {
+      return finish(false);
+    }
+    step = FETCHING;
+    int code = hal::get(UBOOT_LOADER_URL, catalog::path(UBOOT_LOADER).c_str(), 0, progress, error);
+    hal::wifiOff();
+    if (code != 200 || !uboot::haveLoader()) {
+      remove(catalog::path(UBOOT_LOADER).c_str());
+      if (code == 200 || error.empty()) {
+        error = "JieLi's loader didn't download as it should.";
+      }
+      return finish(false);
+    }
+  }
+  const Fm1Id* id = fm1::known(device);
+  std::string was = id ? id->text : "";
+  step = BOOT_LOADER;
+  hal::bleHold(true);
+  uboot::Chip chip;
+  const char* e = uboot::enter(device, chip);
+  std::vector<uint8_t> a, b;
+  if (!e) {
+    step = READING_FLASH;
+    reading = 1;
+    e = uboot::read(chip, a, progress);
+  }
+  if (!e) {
+    reading = 2;
+    e = uboot::read(chip, b, progress);
+    if (!e && a != b) {
+      e = "It read differently twice: try again.";
+    }
+  }
+  step = LEAVING;
+  uboot::leave();
+  for (uint32_t start = hal::millis(); uboot::stuck() && hal::millis() - start < 3000;) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  }
+  hal::bleHold(false);
+  if (e) {
+    error = std::string(e) + (uboot::stuck() ? " Switch the FM-1 off and on to get it back." : "");
+    return finish(false);
+  }
+  // backups/fm1-N.bin, and what it was (fm1-N.txt)
+  std::string dir = catalog::path(BACKUPS_DIR);
+  mkdir(dir.c_str(), 0777);
+  struct stat st;
+  int n = 1;
+  while (n < 1000 && !stat((dir + "/fm1-" + std::to_string(n) + ".bin").c_str(), &st)) {
+    n++;
+  }
+  saved = "fm1-" + std::to_string(n) + ".bin";
+  char sha[65] = "";
+  hal::sha256(a.data(), a.size(), sha);
+  FILE* f = fopen((dir + "/" + saved).c_str(), "wb");
+  bool ok = f && fwrite(a.data(), 1, a.size(), f) == a.size();
+  ok &= f && !fclose(f);
+  if (ok) {
+    f = fopen((dir + "/fm1-" + std::to_string(n) + ".txt").c_str(), "w");
+    ok = f && fprintf(f,
+                      "fm1buddy backup: all of the FM-1's flash, through its boot loader\n"
+                      "firmware %s\nchip key %04X\nflash    %06X, %u bytes\nsha256   %s\n",
+                      was.empty() ? "?" : was.c_str(), chip.key, (unsigned)chip.flashId, (unsigned)chip.size, sha) > 0;
+    ok &= f && !fclose(f);
+  }
+  if (!ok) {
+    error = "Can't write it to the SD card.";
+  }
+  finish(ok);
+}
+
+bool jobs::backup(int d) {
+  if (running) {
+    return false;
+  }
+  device = d;
+  reading = 0;
+  return start(BACKUP, backupJob);
+}
+
 static std::string exportApp;
 
 static void exportJob(void*) {
@@ -446,6 +539,15 @@ std::string jobs::status() {
       return "Asking it...";
     case WRITING_FILES:
       return "Writing the files...";
+    case BOOT_LOADER:
+      return "Into its boot loader...";
+    case READING_FLASH: {
+      uint32_t t = total, d = done;
+      return std::string(reading == 1 ? "Reading it " : "Reading it again ") +
+             std::to_string(t ? (unsigned long long)d * 100 / t : 0) + "%...";
+    }
+    case LEAVING:
+      return "Back to its firmware...";
     case GETTING: {
       uint32_t t = total, d = done;
       return (phase ? "Getting the kits " : "Getting the song ") + std::to_string(t ? (unsigned long long)d * 100 / t : 0) +

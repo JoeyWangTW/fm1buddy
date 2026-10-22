@@ -383,12 +383,147 @@ void fake::play() {
   hal::log("fake fomajam: %s", f.playing ? "playing" : "stopped");
 }
 
+// ------------------------------------------------------------------------------- its boot loader ---
+// F0 22 24 35 7D F7 sends it there: then it's a USB storage device (4C4A:8057) answering JieLi's commands (uboot.h),
+// slow to answer at first, until it's told to run its firmware again. Its flash: 1 MiB, made up
+static struct {
+  bool on, loaderRunning;
+  uint32_t at;  // when it went there
+  uint32_t loaderGot;
+  std::vector<uint8_t> flash;
+} ub;
+
+static uint16_t ubCrc(const uint8_t* p, uint32_t n, uint16_t c) {
+  while (n--) {
+    c ^= (uint16_t)*p++ << 8;
+    for (int i = 0; i < 8; i++) {
+      c = c & 0x8000 ? (uint16_t)((c << 1) ^ 0x1021) : (uint16_t)(c << 1);
+    }
+  }
+  return c;
+}
+
+static void ubCipher(uint8_t* p, uint32_t n) {
+  static const uint8_t MAGIC[16] = {0xC3, 0xCF, 0xC0, 0xE8, 0xCE, 0xD2, 0xB0, 0xAE,
+                                    0xC4, 0xE3, 0xA3, 0xAC, 0xD3, 0xF1, 0xC1, 0xD6};
+  static const uint8_t KEY[2] = {0xFF, 0xFF};
+  uint16_t c = ubCrc(KEY, 2, 0xFFFF);
+  for (uint32_t i = 0; i < n; i++) {
+    c = ubCrc(&MAGIC[i % 16], 1, c);
+    p[i] ^= (uint8_t)c;
+  }
+}
+
+static void ubootEnter() {
+  hal::log("fake fm-1: into its boot loader");
+  midi::umount(FM1);
+  f.state = decltype(f.state)::GONE;
+  f.waiting = false;
+  f.mountAt = 0;
+  ub.on = true, ub.loaderRunning = false, ub.loaderGot = 0, ub.at = hal::millis();
+  if (ub.flash.empty()) {
+    ub.flash.resize(1024 * 1024);
+    for (uint32_t i = 0; i < ub.flash.size(); i++) {
+      ub.flash[i] = (uint8_t)((i * 2654435761u) >> 24);
+    }
+    memcpy(&ub.flash[0x93000], f.ident.c_str(), f.ident.size());  // (something to find)
+  }
+}
+
+// out of it: its firmware starts again (it's already gone from the hub as a MIDI device)
+static void ubootLeave() {
+  ub.on = false;
+  f.state = decltype(f.state)::GONE;
+  f.next = decltype(f.state)::RUN;
+  f.mountAt = hal::millis() + 1500;
+}
+
+bool fake::storageThere(uint16_t vid, uint16_t pid) {
+  return ub.on && vid == 0x4C4A && pid == 0x8057;
+}
+
+bool fake::storage(const uint8_t* cdb, uint8_t cdbLen, bool in, uint8_t* buf, uint32_t len, uint32_t* got) {
+  std::this_thread::sleep_for(std::chrono::microseconds(1500));  // (about a USB command's time)
+  auto be32 = [&](int i) { return (uint32_t)cdb[i] << 24 | cdb[i + 1] << 16 | cdb[i + 2] << 8 | cdb[i + 3]; };
+  uint16_t cmd = cdb[0] << 8 | cdb[1];
+  if (got) {
+    *got = 0;
+  }
+  if (!ub.on || chance(2)) {
+    return false;  // gone, or a command lost
+  }
+  if (cdb[0] == 0x12 && cdbLen == 6) {  // INQUIRY: only after a while
+    if (hal::millis() - ub.at < 1500 || len < 36) {
+      return false;
+    }
+    memset(buf, ' ', 36);
+    memcpy(buf + 8, "WL82", 4), memcpy(buf + 16, "UBOOT1.00", 9), memcpy(buf + 32, "1.00", 4);
+    *got = 36;
+    return true;
+  }
+  if (cdbLen != 16) {
+    return false;
+  }
+  uint32_t addr = be32(2), n = cdb[6] << 8 | cdb[7];
+  if (cmd == 0xFB06 && !in && !ub.loaderRunning) {  // WRITE_MEMORY: the loader, piece by piece
+    if (n != len || ubCrc(buf, len, 0) != (cdb[9] | cdb[10] << 8) || addr != 0x1C02000u + ub.loaderGot) {
+      hal::log("fake fm-1: boot loader: a bad piece of the loader");
+      return false;
+    }
+    ub.loaderGot += len;
+    return true;
+  }
+  if (!in || len != 16) {
+    if (cmd == 0xFD05 && in && ub.loaderRunning && addr + len <= ub.flash.size() && n == len) {  // READ_FLASH
+      memcpy(buf, &ub.flash[addr], len);
+      *got = len;
+      return true;
+    }
+    return false;
+  }
+  memset(buf, 0, 16);
+  buf[0] = cdb[0], buf[1] = cdb[1];
+  *got = 16;
+  if (cmd == 0xFB08 && !ub.loaderRunning) {  // JUMP: to the loader, all of it there
+    if (addr != 0x1C02000u || ub.loaderGot != 24064) {
+      hal::log("fake fm-1: boot loader: jumped to nothing (%u bytes there)", (unsigned)ub.loaderGot);
+      ubootLeave();  // (the chip resets)
+      return false;
+    }
+    ub.loaderRunning = true;
+    hal::log("fake fm-1: boot loader: JieLi's loader running");
+    return true;
+  }
+  if (!ub.loaderRunning) {
+    return false;
+  }
+  if (cmd == 0xFC09) {  // READ_KEY: 0x980F, as it comes
+    uint8_t k[2] = {0x0F, 0x98};
+    ubCipher(k, 2);
+    buf[7] = k[0], buf[6] = k[1];
+    return true;
+  }
+  if (cmd == 0xFC0A) {  // GET_ONLINE_DEVICE: SPI NOR, 0x856014
+    buf[2] = 3, buf[4] = 0x14, buf[5] = 0x60, buf[6] = 0x85;
+    return true;
+  }
+  if (cmd == 0xFC0C) {  // RUN_APP: its firmware again
+    hal::log("fake fm-1: boot loader: back to its firmware");
+    ubootLeave();
+    return true;
+  }
+  return false;
+}
+
 static void fromHost(const uint8_t* b, uint32_t n) {
   static const uint8_t HS[] = {0xF0, 0x00, 0x32, 0x45};
+  static const uint8_t KEY[] = {0xF0, 0x22, 0x24, 0x35, 0x7D, 0xF7};
   static const uint8_t UPGRADE[] = {0xF0, 0x22, 0x24, 0x35, 0x7F, 0xF7};
   uint8_t req[16];
   if (n == 10 && !memcmp(b, HS, 4)) {  // (cmd 0x51's frames start the same way)
     identity();
+  } else if (f.state == decltype(f.state)::RUN && n == sizeof KEY && !memcmp(b, KEY, n)) {
+    ubootEnter();
   } else if (f.state == decltype(f.state)::RUN && f.fomajam && share(b, n)) {
   } else if (f.state == decltype(f.state)::RUN && !f.fomajam && fm1::unframe(b, n, 0x23, req, sizeof req) == 8 &&
              req[0] == 5) {

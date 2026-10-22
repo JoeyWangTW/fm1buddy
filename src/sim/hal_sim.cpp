@@ -13,6 +13,7 @@
 #include <string>
 #include <thread>
 
+#include "fake.h"
 #include "hal.h"
 
 static bool wifi;
@@ -207,4 +208,15 @@ bool hal::sha256(const char* path, char hex[65]) {
 
 void hal::spawn(void (*fn)(void*), void* arg) {
   std::thread(fn, arg).detach();
+}
+
+// ------------------------------------------------------------------------------------- storage ---
+// the pretend FM-1's boot loader (fake.cpp)
+bool hal::storageThere(uint16_t vid, uint16_t pid) {
+  return fake::storageThere(vid, pid);
+}
+
+bool hal::storageCommand(const uint8_t* cdb, uint8_t cdbLen, bool in, uint8_t* buf, uint32_t len, uint32_t* got,
+                         uint32_t) {
+  return fake::storage(cdb, cdbLen, in, buf, len, got);
 }

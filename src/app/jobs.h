@@ -22,7 +22,8 @@ enum Kind { NONE,
             VOICE,     // the stock firmware's current voice to the SD card
             KEEP,      // what a firmware shares (fomajam's song) into a new setup
             RESTORE,   // a setup back to it
-            EXPORT };  // a setup's patterns as MIDI files, its kits as .wav files
+            EXPORT,    // a setup's patterns as MIDI files, its kits as .wav files
+            BACKUP };  // all of the FM-1's flash to the SD card (through its boot loader: uboot.h)
 enum Step { IDLE,
             JOINING,
             FETCHING,
@@ -35,8 +36,11 @@ enum Step { IDLE,
             RESTARTING,
             SENDING,
             ASKING_IT,
-            GETTING,          // KEEP
-            WRITING_FILES };  // EXPORT
+            GETTING,        // KEEP
+            WRITING_FILES,  // EXPORT
+            BOOT_LOADER,    // BACKUP: the FM-1 into its boot loader
+            READING_FLASH,  // BACKUP: its flash (done, total), twice
+            LEAVING };      // BACKUP: back to its firmware
 
 extern std::atomic<int> kind, step;
 extern std::atomic<bool> running;
@@ -50,7 +54,7 @@ extern std::vector<Firmware> hub;  // HUB: the new list
 extern std::string hubUpdated;
 extern int device;             // PROBE, SEND, VOICE, KEEP, RESTORE: the device
 extern sounds::Speaks speaks;  // PROBE
-extern std::string saved;      // VOICE: the file it went into; KEEP: the setup; EXPORT: what it did
+extern std::string saved;      // VOICE: the file it went into; KEEP: the setup; EXPORT: what it did; BACKUP: its file
 
 bool hubList();
 bool download(const Firmware& f);
@@ -63,6 +67,7 @@ bool voice(int d);
 bool keep(int d);
 bool restore(int d, const std::string& setup);  // in /setups
 bool exportSetup(const std::string& setup, const char* app);
+bool backup(int d);  // device d: the FM-1
 // "Joining Wi-Fi", "Downloading 40%", "Writing 12%", ...
 std::string status();
 }  // namespace jobs

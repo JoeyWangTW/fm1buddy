@@ -60,4 +60,5 @@ void syxPage(lv_obj_t* page);    // a .syx
 void setupPage(lv_obj_t* page);  // a setup
 void settingsPage(lv_obj_t* page);
 void wifiPage(lv_obj_t* page);
+void backupPage(lv_obj_t* page);  // all of the FM-1's flash to the SD card
 }  // namespace ui
