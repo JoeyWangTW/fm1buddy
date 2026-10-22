@@ -3,7 +3,8 @@
 Switch the M-VAVE FM-1's firmware and play it from cheap USB and Bluetooth MIDI controllers, with no computer. It runs
 on a ready-made [Freenove ESP32-S3 2.8" touch screen](https://store.freenove.com/products/fnk0104?variant=45040270213318)
 (FNK0104B): firmwares from its SD card or the [FM-1 Firmware Hub](https://thefirmwarehub.com) over Wi-Fi, installed
-on the FM-1 through a USB hub, with up to 4 USB MIDI devices and Bluetooth MIDI playing each other.
+on the FM-1 through a USB hub, with up to 4 USB MIDI devices and Bluetooth MIDI playing each other. Sounds (.syx) go
+between the FM-1 and the SD card too.
 
 **Install it, and how to set it up:** <https://konsumer.github.io/fm1buddy/>
 
@@ -17,6 +18,11 @@ on the FM-1 through a USB hub, with up to 4 USB MIDI devices and Bluetooth MIDI 
     <td><img src="docs/screens/midi.png" width="260" alt="The MIDI devices on the hub" /></td>
     <td><img src="docs/screens/midi-bluetooth.png" width="260" alt="Bluetooth MIDI" /></td>
     <td><img src="docs/screens/themes.png" width="260" alt="The themes" /></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screens/sounds.png" width="260" alt="Sounds: what the FM-1 speaks, recording, .syx files" /></td>
+    <td><img src="docs/screens/sounds-bank.png" width="260" alt="A DX7 bank on the SD card" /></td>
+    <td><img src="docs/screens/settings.png" width="260" alt="Settings" /></td>
   </tr>
 </table>
 
@@ -34,7 +40,7 @@ headless from a script too, for screenshots:
 
 ```sh
 pio run -e sim && .pio/build/sim/program --fm1 --keys
-.pio/build/sim/program --headless --script "tap 24 116; wait 300; shot settings.bmp; quit"
+.pio/build/sim/program --headless --script "tap 24 142; wait 300; shot settings.bmp; quit"
 ```
 
 `tools/install-test.sh` installs a package on the pretend FM-1, cleanly and with faults (lost and repeated requests,
@@ -47,8 +53,8 @@ last 10 are kept): send one along with a report of an install gone wrong.
 logged on the hub, also in `fm1buddy/log.txt` on its SD card), and `host` (the USB host for 20 s).
 
 ```
-src/app/   the app (LVGL 9): pages, the Hub's list, MIDI between devices, the FM-1's update protocol; hal.h is what it
-           needs from the board
+src/app/   the app (LVGL 9): pages, the Hub's list, MIDI between devices, the FM-1's update protocol, sounds (SysEx);
+           hal.h is what it needs from the board
 src/s3/    the board: screen, touch, SD, Wi-Fi, USB host (TinyUSB), Bluetooth MIDI (NimBLE)
 src/sim/   the simulator
 site/      the installer page (GitHub Pages, with the latest release)
