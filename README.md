@@ -6,6 +6,31 @@ Bluetooth and a USB-C port that can be a USB host: nothing to put together.
 
 **Install it from the browser:** <https://konsumer.github.io/fm1buddy/>.
 
+<table>
+  <tr>
+    <td><img src="docs/screens/firmware-hub.png" width="320" alt="The Firmware Hub's list: filter by kind, sort by stars, date or name" /><br />The Firmware Hub's list: filter by kind, sort by stars, date or name</td>
+    <td><img src="docs/screens/firmware-details.png" width="320" alt="What a firmware is, and installing it" /><br />What a firmware is, and installing it</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screens/firmware-install.png" width="320" alt="Installing, on the FM-1 on the hub" /><br />Installing, on the FM-1 on the hub</td>
+    <td><img src="docs/screens/firmware-sd.png" width="320" alt="The firmwares on the SD card" /><br />The firmwares on the SD card</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screens/midi.png" width="320" alt="MIDI: what's on the hub, and what each one plays" /><br />MIDI: what's on the hub, and what each one plays</td>
+    <td><img src="docs/screens/midi-bluetooth.png" width="320" alt="Bluetooth MIDI: a phone, and a keyboard" /><br />Bluetooth MIDI: a phone, and a keyboard</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screens/settings.png" width="320" alt="Settings" /><br />Settings</td>
+    <td><img src="docs/screens/themes.png" width="320" alt="The themes: one for each FM-1 color" /><br />The themes: one for each FM-1 color</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screens/wifi.png" width="320" alt="Wi-Fi networks" /><br />Wi-Fi networks</td>
+    <td><img src="docs/screens/wifi-password.png" width="320" alt="Typing a password" /><br />Typing a password</td>
+  </tr>
+</table>
+
+(From the [simulator](#development), with a pretend FM-1 and keyboard.)
+
 ## The CYD-S3
 
 A [Freenove ESP32-S3 Display, 2.8", with touch](https://github.com/Freenove/Freenove_ESP32_S3_Display) (FNK0104B; the
