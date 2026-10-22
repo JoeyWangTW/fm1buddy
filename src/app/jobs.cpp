@@ -1,9 +1,13 @@
 #include "jobs.h"
 
+#include <dirent.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
+
+#include <algorithm>
 
 #include "fm1.h"
 #include "settings.h"
@@ -162,20 +166,66 @@ static void installProgress(Fm1Step s, uint32_t, uint32_t addr) {
   done = s == STEP_WRITE ? addr : 0;
 }
 
+// a new install record: /fm1buddy/installs/N.txt, the last 10 kept. name gets "installs/N.txt"
+static FILE* newRecord(std::string& name) {
+  std::string dir = catalog::path(INSTALLS_DIR);
+  mkdir(dir.c_str(), 0777);
+  int last = 0;
+  if (DIR* d = opendir(dir.c_str())) {
+    while (dirent* e = readdir(d)) {
+      last = std::max(last, atoi(e->d_name));
+    }
+    closedir(d);
+  }
+  for (int n = last - 9; n > 0 && n > last - 30; n--) {
+    remove((dir + "/" + std::to_string(n) + ".txt").c_str());
+  }
+  name = "installs/" + std::to_string(last + 1) + ".txt";
+  FILE* f = fopen((dir + "/" + std::to_string(last + 1) + ".txt").c_str(), "w");
+  if (f) {
+    setvbuf(f, 0, _IOFBF, 8192);
+  }
+  return f;
+}
+
 static void installJob(void*) {
   if (!target.onSd && !fetch()) {
     return finish(false);
   }
+  step = CHECKING;
   Pkg pkg;
-  if (!pkg.open(catalog::path(std::string(FW_DIR "/") + target.file).c_str())) {
-    error = "That isn't an FM-1 package.";
+  if (const char* e = pkg.open(catalog::path(std::string(FW_DIR "/") + target.file).c_str())) {
+    error = e;
     return finish(false);
+  }
+  if (!target.sha256.empty() && strcasecmp(pkg.sha256, target.sha256.c_str())) {
+    error = "The file on the SD card isn't what the Hub says it is (sha256): download it again.";
+    return finish(false);
+  }
+  std::string name;
+  FILE* rec = newRecord(name);
+  if (rec) {
+    fprintf(rec, "fm1buddy install\n");
+    fprintf(rec, "file     %s\n", target.file.c_str());
+    fprintf(rec, "size     %u (image %u)\n", (unsigned)pkg.fileSize, (unsigned)pkg.size);
+    fprintf(rec, "product  %s\n", pkg.product);
+    fprintf(rec, "sha256   %s\n", pkg.sha256);
+    fprintf(rec, "hub      %s\n\n", target.sha256.empty() ? "not on the Hub" : "the same as the Hub's");
+    fflush(rec);
   }
   total = pkg.size;
   step = ASKING;
-  const char* e = fm1::install(pkg, installProgress);
+  hal::bleHold(true);  // the radio stays out of it
+  const char* e = fm1::install(pkg, installProgress, rec);
+  hal::bleHold(false);
+  if (rec) {
+    fclose(rec);
+  }
   if (e) {
     error = e;
+    if (rec) {
+      error += " (details: " DATA_DIR "/" + name + ")";
+    }
   }
   finish(!e);
 }

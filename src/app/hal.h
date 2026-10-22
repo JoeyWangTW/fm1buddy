@@ -40,6 +40,7 @@ bool wifiOn();
 int get(const char* url, const char* path, std::string* etag, void (*progress)(uint32_t done, uint32_t total),
         std::string& err);
 bool sha256(const char* path, char hex[65]);
+bool sha256(const uint8_t* p, size_t n, char hex[65]);
 
 // USB: the port is the host (a hub on it, the FM-1 and controllers on the hub), or, when a computer is on it at
 // power-on, a serial port to the computer (for flashing and logs)
@@ -63,6 +64,7 @@ void bleSearch(bool on);  // look for keyboards and synths all the time (the MID
 int blePeers(BlePeer* out, int max);
 void bleToggle(int i);  // connect and remember peer i, or forget and disconnect it
 bool bleChanged();      // the list changed (once)
+void bleHold(bool on);  // Bluetooth stops for a while (an FM-1 install), and comes back as it was
 
 // run fn on a thread of its own
 void spawn(void (*fn)(void*), void* arg);

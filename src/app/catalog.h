@@ -12,6 +12,7 @@
 #define DATA_DIR "/fm1buddy"
 #define HUB_CACHE DATA_DIR "/hub.json"
 #define HUB_ETAG DATA_DIR "/hub.etag"
+#define INSTALLS_DIR DATA_DIR "/installs"  // a record of each install
 
 struct Firmware {
   std::string name, author, version, date, what;

@@ -1,6 +1,7 @@
 #include "fm1.h"
 
 #include <ctype.h>
+#include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
@@ -21,6 +22,7 @@ namespace fm1 {
 std::atomic<bool> busy{false};
 std::atomic<uint32_t> imageSize{0};
 char imageProduct[24];
+char imagePath[160];
 }  // namespace fm1
 
 bool Fm1Id::ota() const {
@@ -32,40 +34,65 @@ bool Fm1Id::ota() const {
 #define BLK 0x30
 #define KEEP 0x2F
 
-bool Pkg::open(const char* path) {
+// the whole file into memory, read twice (the second time just for its sha256): a card that reads differently
+// each time is found before the FM-1 is touched
+const char* Pkg::open(const char* p) {
   close();
-  f = fopen(path, "rb");
+  snprintf(path, sizeof path, "%s", p);
+  FILE* f = fopen(p, "rb");
   if (!f) {
-    return false;
+    return "Can't open the file on the SD card.";
   }
   fseek(f, 0, SEEK_END);
   long n = ftell(f);
-  if (n < BLOCKS * BLK) {
-    return false;
-  }
-  size = n - BLOCKS;
-  // the identity: one marker byte after each of the first 20 blocks
-  uint8_t head[BLOCKS * BLK];
   fseek(f, 0, SEEK_SET);
-  if (fread(head, 1, sizeof head, f) != sizeof head) {
-    return false;
+  if (n < BLOCKS * BLK || n > 16 * 1024 * 1024) {
+    fclose(f);
+    return "That isn't an FM-1 package.";
   }
+  image = (uint8_t*)malloc(n);  // big blocks go to the PSRAM
+  if (!image) {
+    fclose(f);
+    return "Not enough memory for the package.";
+  }
+  bool got = fread(image, 1, n, f) == (size_t)n;
+  fclose(f);
+  if (!got) {
+    close();
+    return "The SD card didn't read the whole file.";
+  }
+  fileSize = n;
+  char again[65];
+  if (!hal::sha256(image, n, sha256) || !hal::sha256(p, again) || strcmp(sha256, again)) {
+    close();
+    return "The SD card read the file differently twice: try another card.";
+  }
+  // the identity: one marker byte after each of the first 20 blocks
   uint32_t k = 0;
   for (int i = 0; i < BLOCKS; i++) {
-    uint8_t m = head[i * BLK + KEEP];
+    uint8_t m = image[i * BLK + KEEP];
     if (m != 0x7D && k < sizeof product - 1) {
       product[k++] = (char)((m - i - 1) & 0xFF);
     }
   }
   product[k] = 0;
-  return k > 0;
+  if (!k) {
+    close();
+    return "That isn't an FM-1 package.";
+  }
+  // the logical image: the first 20 blocks lose their last byte
+  for (int i = 1; i < BLOCKS; i++) {
+    memmove(image + i * KEEP, image + i * BLK, KEEP);
+  }
+  memmove(image + BLOCKS * KEEP, image + BLOCKS * BLK, n - BLOCKS * BLK);
+  size = n - BLOCKS;
+  return 0;
 }
 
 void Pkg::close() {
-  if (f) {
-    fclose(f);
-    f = 0;
-  }
+  free(image);
+  image = 0;
+  size = 0;
 }
 
 bool Pkg::fits(const Fm1Id& id) const {
@@ -74,21 +101,12 @@ bool Pkg::fits(const Fm1Id& id) const {
   return strlen(id.model) == n && !strncmp(id.model, product, n);
 }
 
-// the logical image: the first 20 blocks lose their last byte
-bool Pkg::read(uint32_t addr, uint8_t* out, uint32_t len) {
-  while (len && addr < BLOCKS * KEEP) {
-    uint32_t i = addr / KEEP, o = addr % KEEP, n = KEEP - o;
-    if (n > len) {
-      n = len;
-    }
-    if (fseek(f, i * BLK + o, SEEK_SET) || fread(out, 1, n, f) != n) {
-      return false;
-    }
-    addr += n;
-    out += n;
-    len -= n;
+bool Pkg::read(uint32_t addr, uint8_t* out, uint32_t len) const {
+  if (!image || addr > size || len > size - addr) {
+    return false;
   }
-  return !len || (!fseek(f, addr + BLOCKS, SEEK_SET) && fread(out, 1, len, f) == len);
+  memcpy(out, image + addr, len);
+  return true;
 }
 
 // ---------------------------------------------------------------------------------------- framing ---
@@ -126,7 +144,8 @@ static uint32_t unpack7(const uint8_t* in, uint32_t n, uint8_t* out, uint32_t ma
   return o;
 }
 
-static void respond(int d, uint32_t addr, const uint8_t* data, uint32_t len, uint8_t fl) {
+// false: the device went, or didn't take it for a second
+static bool respond(int d, uint32_t addr, const uint8_t* data, uint32_t len, uint8_t fl) {
   static uint8_t body[14 + MAXDATA + 1], wire[2 + (sizeof body * 8 + 6) / 7];
   uint32_t n = 0, s = 0;
   body[n++] = 0x00;
@@ -153,7 +172,7 @@ static void respond(int d, uint32_t addr, const uint8_t* data, uint32_t len, uin
   wire[w++] = 0xF0;
   w += pack7(body, n, wire + w);
   wire[w++] = 0xF7;
-  midi::send(d, wire, w);
+  return midi::sendWait(d, wire, w, 1000);
 }
 
 struct Request {
@@ -339,6 +358,53 @@ int fm1::current() {
   return -1;
 }
 
+// ------------------------------------------------------------------------------------------- record ---
+static FILE* rec;
+static uint32_t recStart;
+
+static void recLine(bool flush, const char* fmt, va_list a) {
+  if (!rec) {
+    return;
+  }
+  fprintf(rec, "%7.3f  ", (hal::millis() - recStart) / 1000.0);
+  vfprintf(rec, fmt, a);
+  fputc('\n', rec);
+  if (flush) {
+    fflush(rec);  // what happened so far is on the card, even if the power goes
+  }
+}
+
+// a step, an error, anything odd
+static void note(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
+static void note(const char* fmt, ...) {
+  va_list a;
+  va_start(a, fmt);
+  recLine(true, fmt, a);
+  va_end(a);
+}
+
+// a request (there are thousands: written in chunks)
+static void noteReq(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
+static void noteReq(const char* fmt, ...) {
+  va_list a;
+  va_start(a, fmt);
+  recLine(false, fmt, a);
+  va_end(a);
+}
+
+static void noteHex(const char* what, const uint8_t* p, uint32_t n) {
+  if (!rec) {
+    return;
+  }
+  char hex[3 * SYSEX_MAX + 1];
+  uint32_t k = 0;
+  for (uint32_t i = 0; i < n && i < SYSEX_MAX; i++) {
+    k += snprintf(hex + k, sizeof hex - k, "%02X ", p[i]);
+  }
+  hex[k ? k - 1 : 0] = 0;
+  note("! %s (%u bytes): %s", what, (unsigned)n, hex);
+}
+
 // ------------------------------------------------------------------------------------------ install ---
 struct Served {
   uint32_t served;
@@ -346,44 +412,82 @@ struct Served {
 };
 
 // answer read requests until the device asks for the finish address; stops early when the device goes
-static Served serve(int d, Pkg& pkg, uint32_t finish, uint32_t idleMs, Fm1Step step, Fm1Progress cb) {
+static Served serve(int d, const Pkg& pkg, uint32_t finish, uint32_t idleMs, Fm1Step step, Fm1Progress cb) {
   static uint8_t data[MAXDATA];
   static const char OK[] = "success";
   uint8_t pkt[SYSEX_MAX];
   midi::Dev v;
   midi::dev(d, v);
-  uint32_t serial = v.serial, last = hal::millis();
+  uint32_t serial = v.serial, last = hal::millis(), dropped = v.dropped, lost = v.sysexLost;
+  uint32_t prevAddr = ~0u, prevLen = 0, next = 0, again = 0, jumps = 0, odd = 0;
   Served s = {0, false, false, false};
+  auto summary = [&](const char* how) {
+    note("%s: %u answered, %u asked again, %u out of order, %u not understood", how, (unsigned)s.served,
+         (unsigned)again, (unsigned)jumps, (unsigned)odd);
+  };
   for (;;) {
     if (!midi::dev(d, v) || v.serial != serial) {
       s.lost = true;
+      summary("the device went");
       return s;
+    }
+    if (v.dropped != dropped || v.sysexLost != lost) {
+      note("! lost on the way: %u to it, %u from it", (unsigned)(v.dropped - dropped), (unsigned)(v.sysexLost - lost));
+      dropped = v.dropped;
+      lost = v.sysexLost;
     }
     uint32_t n = midi::sysex(d, pkt);
     Request r;
-    if (!n || !parseRequest(pkt, n, r)) {
+    if (!n) {
       if (hal::millis() - last > idleMs) {
+        summary("nothing asked for a while");
         return s;
       }
       wait(1);
       continue;
     }
+    if (!parseRequest(pkt, n, r)) {
+      odd++;
+      noteHex("not a request", pkt, n);
+      continue;
+    }
     last = hal::millis();
     if (r.addr == FINISH_VERIFY || r.addr == FINISH_WRITE) {
-      respond(d, r.addr, (const uint8_t*)OK, sizeof OK, 0);  // with its 0
+      note("finish %08X asked", (unsigned)r.addr);
+      if (!respond(d, r.addr, (const uint8_t*)OK, sizeof OK, 0)) {  // with its 0
+        note("! the answer didn't go");
+      }
       if (r.addr == finish) {
         s.finished = true;
+        summary("finished");
         return s;
       }
       continue;
     }
-    if (r.len > MAXDATA || r.addr + r.len > pkg.size || !pkg.read(r.addr, data, r.len)) {
+    const char* tag = "";
+    if (r.addr == prevAddr && r.len == prevLen) {
+      tag = "  again";  // our answer was lost, or late
+      again++;
+    } else if (step == STEP_WRITE && s.served && r.addr != next) {
+      tag = "  jump";
+      jumps++;
+    }
+    noteReq("%08X+%u fl %u%s", (unsigned)r.addr, (unsigned)r.len, r.fl, tag);
+    prevAddr = r.addr;
+    prevLen = r.len;
+    next = r.addr + r.len;
+    if (r.len > MAXDATA || !pkg.read(r.addr, data, r.len)) {
+      note("! a request past the package (%u bytes)", (unsigned)pkg.size);
       hal::log("fm1: a bad request: %08X+%u", (unsigned)r.addr, (unsigned)r.len);
       s.bad = true;
+      summary("stopped");
       return s;
     }
     wait(10);
-    respond(d, r.addr, data, r.len, r.fl);
+    if (!respond(d, r.addr, data, r.len, r.fl)) {
+      note("! the answer didn't go");
+      continue;  // it asks again, or goes
+    }
     s.served++;
     if (cb) {
       cb(step, s.served, r.addr);
@@ -391,10 +495,17 @@ static Served serve(int d, Pkg& pkg, uint32_t finish, uint32_t idleMs, Fm1Step s
   }
 }
 
-static const char* write(int d, Pkg& pkg, Fm1Progress cb) {
-  cb(STEP_WRITE, 0, 0);
+static bool upgrade(int d) {
   midi::drain(d);
-  midi::send(d, UPGRADE, sizeof UPGRADE);
+  bool sent = midi::sendWait(d, UPGRADE, sizeof UPGRADE, 1000);
+  note(sent ? "upgrade sent" : "! upgrade didn't go");
+  return sent;
+}
+
+static const char* write(int d, const Pkg& pkg, Fm1Progress cb) {
+  cb(STEP_WRITE, 0, 0);
+  note("writing");
+  upgrade(d);
   wait(2000);
   Served s = serve(d, pkg, FINISH_WRITE, 180000, STEP_WRITE, cb);
   if (!s.finished) {
@@ -404,14 +515,17 @@ static const char* write(int d, Pkg& pkg, Fm1Progress cb) {
   return 0;
 }
 
-static const char* comeBack(Pkg& pkg, Fm1Progress cb) {
+static const char* comeBack(const Pkg& pkg, Fm1Progress cb) {
   static char err[80];
   Fm1Id id;
   cb(STEP_REBOOT, 0, 0);
+  note("waiting for it to restart");
   wait(3000);
-  if (waitFor(false, id, 40000) < 0) {
+  int d = waitFor(false, id, 40000);
+  if (d < 0) {
     return "The FM-1 didn't come back: switch it off and on.";
   }
+  note("back: %d says %s", d, id.text);
   if (strcmp(id.text, pkg.product)) {
     snprintf(err, sizeof err, "Installed, but the FM-1 says it's %s.", id.text);
     return err;
@@ -420,13 +534,14 @@ static const char* comeBack(Pkg& pkg, Fm1Progress cb) {
   return 0;
 }
 
-static const char* steps(Pkg& pkg, Fm1Progress cb) {
+static const char* steps(const Pkg& pkg, Fm1Progress cb) {
   static char err[96];
   Fm1Id id;
   cb(STEP_START, 0, 0);
   int d = find(true, id);
   if (d >= 0) {  // in update mode already: finish it
     hal::log("fm1: %s is waiting: finishing", id.text);
+    note("%d is %s, in update mode: finishing", d, id.text);
     const char* e = write(d, pkg, cb);
     return e ? e : comeBack(pkg, cb);
   }
@@ -434,13 +549,16 @@ static const char* steps(Pkg& pkg, Fm1Progress cb) {
   if (d < 0) {
     return "No FM-1 answered: is it on, and on the hub?";
   }
+  midi::Dev v;
+  midi::dev(d, v);
+  note("%d is %s (%s, %04X:%04X)", d, id.text, v.name, v.vid, v.pid);
   if (!pkg.fits(id)) {
     snprintf(err, sizeof err, "The FM-1 is %s, the package is for %s.", id.text, pkg.product);
     return err;
   }
   cb(STEP_VERIFY, 0, 0);
-  midi::drain(d);
-  midi::send(d, UPGRADE, sizeof UPGRADE);
+  note("verifying");
+  upgrade(d);
   wait(2000);
   Served s = serve(d, pkg, FINISH_VERIFY, 8000, STEP_VERIFY, cb);
   if (!s.finished) {
@@ -451,22 +569,30 @@ static const char* steps(Pkg& pkg, Fm1Progress cb) {
     return err;
   }
   cb(STEP_LOADER, 0, 0);
+  note("waiting for the loader");
   wait(3000);
   d = waitFor(true, id, 30000);
   if (d < 0) {
     return "The update loader didn't appear. Replug the FM-1 and install again: it stays in update mode until it's done.";
   }
+  note("%d is %s", d, id.text);
   const char* e = write(d, pkg, cb);
   return e ? e : comeBack(pkg, cb);
 }
 
 // the update stays between the FM-1 and us: nothing goes through while it runs
-const char* fm1::install(Pkg& pkg, Fm1Progress cb) {
+const char* fm1::install(const Pkg& pkg, Fm1Progress cb, FILE* r) {
   busy = true;
   midi::thru = false;
   imageSize = pkg.size;
   snprintf(imageProduct, sizeof imageProduct, "%s", pkg.product);
+  snprintf(imagePath, sizeof imagePath, "%s", pkg.path);
+  rec = r;
+  recStart = hal::millis();
+  note("looking for the FM-1");
   const char* e = steps(pkg, cb);
+  note("%s", e ? e : "done");
+  rec = 0;
   hal::log("fm1: install: %s", e ? e : "done");
   memset(ids, 0, sizeof ids);  // ask them all again
   midi::thru = true;

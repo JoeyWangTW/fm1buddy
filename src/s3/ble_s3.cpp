@@ -648,6 +648,10 @@ void board::blePause(bool on) {
 }
 
 // ------------------------------------------------------------------------------------------- hal.h ---
+void hal::bleHold(bool on) {
+  board::blePause(on);
+}
+
 void hal::bleOn(bool on) {
   if (!loaded) {
     prefs.begin("fm1bt");
