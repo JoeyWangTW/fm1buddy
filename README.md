@@ -78,8 +78,11 @@ FM-1 ───────┘                 │
 When it starts plugged into a **computer** instead, it stays a USB serial port, for flashing and its log (no BOOT
 button needed). On the hub, its log goes to `fm1buddy/log.txt` on the SD card.
 
-The S3's USB has 8 channels: the hub takes 2, and each device 3, so **two devices on the hub**: the FM-1 and one
-controller. The RGB LED on the back flashes with USB MIDI.
+**Up to 4 USB MIDI devices on the hub** (the FM-1 and 3 controllers, say; tested with 3 controllers at once). The S3's
+USB has 8 channels, and its USB host (TinyUSB) only holds one while a transfer is going: each device's waiting MIDI in
+holds one, the rest come and go. The RGB LED on the back flashes with USB MIDI. On the MIDI page, each device shows how
+many messages it sent, and, in red, any sent to it that it didn't take (a device that doesn't read its MIDI in fast
+enough: only what goes to it is lost).
 
 ### Flashing
 
@@ -145,7 +148,8 @@ src/app/             the CYD-S3's app, on LVGL 9: the same code on the board and
   hal.h              what the app needs from the board: SD, settings, Wi-Fi, HTTPS, USB, Bluetooth, threads
   themes.h           the color themes (FOMAJAM's)
 src/s3/              the CYD-S3: the screen and touch for LVGL, and hal.h (SD_MMC, NVS, Wi-Fi, esp_http_client),
-                     the USB host (usb_s3.cpp) and Bluetooth MIDI (ble_s3.cpp, NimBLE)
+                     the USB host (usb_s3.cpp, TinyUSB: tusb_config_fm1buddy.h) and Bluetooth MIDI
+                     (ble_s3.cpp, NimBLE)
 src/sim/             the simulator: SDL2, hal.h with a folder for the SD card and libcurl, pretend devices
 tools/s3.py          screenshots and taps on the CYD-S3, over its USB serial
 case/                the 3D-printed case (OpenSCAD); tools/cases.sh makes its STLs
