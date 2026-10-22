@@ -30,7 +30,7 @@ static struct {
   uint32_t askedAt;             // when it asked
   uint8_t verifies;
   bool waiting;  // for an answer
-  uint8_t sx[2048];
+  uint8_t sx[8192];
   uint32_t sxn;
   int next;  // the state it comes back in
   bool faults, unplugged;
@@ -211,11 +211,60 @@ static bool answer(const uint8_t* b, uint32_t n) {
   return true;
 }
 
+// a DX7 voice (155 bytes, VCED) and its packed form (128, VMEM), named
+static void voice(uint8_t* v, const char* name) {
+  for (int i = 0; i < 155; i++) {
+    v[i] = (uint8_t)((i * 7) % 100);
+  }
+  bool end = false;
+  for (int i = 0; i < 10; i++) {
+    end |= !name[i];
+    v[145 + i] = end ? ' ' : (uint8_t)name[i];
+  }
+}
+
+static void sendDx7(const uint8_t* head, const uint8_t* data, uint32_t n) {
+  std::vector<uint8_t> m(head, head + 6);
+  uint32_t sum = 0;
+  for (uint32_t i = 0; i < n; i++) {
+    m.push_back(data[i] & 0x7F);
+    sum += data[i] & 0x7F;
+  }
+  m.push_back((-sum) & 0x7F);
+  m.push_back(0xF7);
+  sendSysex(FM1, m.data(), m.size());
+}
+
+void fake::dump() {
+  static const uint8_t HEAD[] = {0xF0, 0x43, 0x00, 0x09, 0x20, 0x00};
+  uint8_t bank[4096];
+  for (int v = 0; v < 32; v++) {
+    uint8_t* p = bank + v * 128;
+    for (int i = 0; i < 118; i++) {
+      p[i] = (uint8_t)((v + i) % 100);
+    }
+    char name[11];
+    snprintf(name, sizeof name, "FAKE %-5d", v + 1);
+    memcpy(p + 118, name, 10);
+  }
+  hal::log("fake fm-1: sending a DX7 bank");
+  sendDx7(HEAD, bank, sizeof bank);
+}
+
 static void fromHost(const uint8_t* b, uint32_t n) {
   static const uint8_t HS[] = {0xF0, 0x00, 0x32, 0x45};
   static const uint8_t UPGRADE[] = {0xF0, 0x22, 0x24, 0x35, 0x7F, 0xF7};
+  uint8_t req[16];
   if (n >= 4 && !memcmp(b, HS, 4)) {
     identity();
+  } else if (f.state == decltype(f.state)::RUN && fm1::unframe(b, n, 0x23, req, sizeof req) == 8 && req[0] == 5) {
+    // the stock firmware's read: its current voice
+    uint8_t reply[8 + 155], wire[256];
+    memcpy(reply, req, 8);
+    voice(reply + 8, "E.PIANO 1");
+    sendSysex(FM1, wire, fm1::frame(0x23, reply, sizeof reply, wire));
+  } else if (n > 6 && b[1] == 0x43) {
+    hal::log("fake fm-1: got DX7 SysEx, %u bytes", (unsigned)n);
   } else if (n == sizeof UPGRADE && !memcmp(b, UPGRADE, n)) {
     hal::log("fake fm-1: upgrade, as %s", f.ident.c_str());
     if (f.state == decltype(f.state)::RUN) {

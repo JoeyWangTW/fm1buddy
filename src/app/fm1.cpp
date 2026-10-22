@@ -175,6 +175,53 @@ static bool respond(int d, uint32_t addr, const uint8_t* data, uint32_t len, uin
   return midi::sendWait(d, wire, w, 1000);
 }
 
+uint32_t fm1::frame(uint8_t cmd, const uint8_t* payload, uint32_t n, uint8_t* out) {
+  static uint8_t body[7 + 1024];
+  if (n > 1024) {
+    return 0;
+  }
+  uint32_t k = 0, sum = 0;
+  body[k++] = 0x00;
+  body[k++] = 0x59;
+  body[k++] = cmd;
+  body[k++] = n & 0xFF;
+  body[k++] = (n >> 8) & 0xFF;
+  body[k++] = (n >> 16) & 0xFF;
+  for (uint32_t i = 0; i < n; i++) {
+    sum += payload[i];
+    body[k++] = payload[i];
+  }
+  body[k++] = ~sum & 0xFF;
+  uint32_t w = 0;
+  out[w++] = 0xF0;
+  w += pack7(body, k, out + w);
+  out[w++] = 0xF7;
+  return w;
+}
+
+int fm1::unframe(const uint8_t* pkt, uint32_t n, uint8_t cmd, uint8_t* out, uint32_t max) {
+  static uint8_t body[7 + 1024];
+  if (n < 10 || pkt[0] != 0xF0 || pkt[n - 1] != 0xF7) {
+    return -1;
+  }
+  uint32_t k = unpack7(pkt + 1, n - 2, body, sizeof body);
+  if (k < 7 || k > sizeof body || body[0] || body[1] != 0x59 || body[2] != cmd) {
+    return -1;
+  }
+  uint32_t len = body[3] | body[4] << 8 | body[5] << 16, sum = 0;
+  if (len + 7 > k) {
+    return -1;
+  }
+  for (uint32_t i = 0; i < len; i++) {
+    sum += body[6 + i];
+  }
+  if ((~sum & 0xFF) != body[6 + len] || len > max) {
+    return -1;
+  }
+  memcpy(out, body + 6, len);
+  return len;
+}
+
 struct Request {
   uint8_t fl;
   uint32_t addr, len;
@@ -236,7 +283,7 @@ static void wait(uint32_t ms) {
 }
 
 // the device can be an FM-1: by its USB name (never probe other gear)
-static bool candidate(const midi::Dev& v) {
+static bool candidateDev(const midi::Dev& v) {
   static const char* NAMES[] = {"fm-1", "felucca", "ota", "composite", "sinco", "usb-midi"};
   char lower[sizeof v.name];
   uint32_t i = 0;
@@ -271,10 +318,15 @@ static bool handshake(int d, Fm1Id& id, int tries = 2) {
   return false;
 }
 
+bool fm1::candidate(int d) {
+  midi::Dev v;
+  return midi::dev(d, v) && candidateDev(v);
+}
+
 static int find(bool ota, Fm1Id& id) {
   midi::Dev v;
   for (int d = 0; d < MIDI_DEVS; d++) {
-    if (midi::dev(d, v) && candidate(v) && handshake(d, id) && id.ota() == ota) {
+    if (midi::dev(d, v) && candidateDev(v) && handshake(d, id) && id.ota() == ota) {
       return d;
     }
   }
@@ -316,7 +368,7 @@ void fm1::watch() {
       s = {};
       s.serial = v.serial;
       s.askAt = now + 1500;  // it settles first
-      s.done = !candidate(v);
+      s.done = !candidateDev(v);
       continue;
     }
     if (s.done) {

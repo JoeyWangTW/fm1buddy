@@ -8,14 +8,18 @@
 
 #include "catalog.h"
 #include "hal.h"
+#include "sounds.h"
 
 namespace jobs {
 enum Kind { NONE,
-            HUB,        // update the Hub's list
-            DOWNLOAD,   // a Hub firmware to /fm1
-            SCAN,       // the Wi-Fi networks
-            JOIN,       // try a Wi-Fi network (Settings)
-            INSTALL };  // a firmware on the FM-1 (downloaded first, from the Hub, if it isn't on the SD card)
+            HUB,       // update the Hub's list
+            DOWNLOAD,  // a Hub firmware to /fm1
+            SCAN,      // the Wi-Fi networks
+            JOIN,      // try a Wi-Fi network (Settings)
+            INSTALL,   // a firmware on the FM-1 (downloaded first, from the Hub, if it isn't on the SD card)
+            PROBE,     // what a device's firmware speaks (sounds.h)
+            SEND,      // a .syx to a device
+            VOICE };   // the stock firmware's current voice to the SD card
 enum Step { IDLE,
             JOINING,
             FETCHING,
@@ -25,7 +29,9 @@ enum Step { IDLE,
             VERIFYING,  // the FM-1 reads parts of the package
             LOADER,     // it restarts into its update loader
             WRITING,    // the loader reads it all, and writes it
-            RESTARTING };
+            RESTARTING,
+            SENDING,
+            ASKING_IT };
 
 extern std::atomic<int> kind, step;
 extern std::atomic<bool> running;
@@ -36,12 +42,18 @@ extern std::string error;
 extern std::vector<hal::Ap> aps;   // SCAN
 extern std::vector<Firmware> hub;  // HUB: the new list
 extern std::string hubUpdated;
+extern int device;             // PROBE, SEND, VOICE: the device
+extern sounds::Speaks speaks;  // PROBE
+extern std::string saved;      // VOICE: the file it went into
 
 bool hubList();
 bool download(const Firmware& f);
 bool scan();
 bool join(const char* ssid, const char* pass);
 bool install(const Firmware& f);
+bool probe(int d);
+bool send(int d, const std::string& file);  // in /syx
+bool voice(int d);
 // "Joining Wi-Fi", "Downloading 40%", "Writing 12%", ...
 std::string status();
 }  // namespace jobs
