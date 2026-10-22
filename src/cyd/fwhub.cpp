@@ -53,10 +53,7 @@ static bool forModel(const char* product, const char* model) {
   return strlen(model) == n && !strncmp(product, model, n);
 }
 
-static bool add(JsonVariantConst e, const char* name, const char* author, const char* model) {
-  if (fwhub::count >= HUB_MAX) {
-    return false;
-  }
+static bool read(JsonVariantConst e, const char* name, const char* author, const char* model, HubPkg& p) {
   const char* pkg = e["pkg"];
   const char* product = e["product"];
   const char* sha = e["sha256"];
@@ -64,7 +61,6 @@ static bool add(JsonVariantConst e, const char* name, const char* author, const 
   if (!pkg || !product || !sha || strlen(sha) != 64 || !size || !forModel(product, model) || strstr(pkg, "..")) {
     return false;
   }
-  HubPkg& p = fwhub::list[fwhub::count++];
   strlcpy(p.name, name, sizeof p.name);
   strlcpy(p.author, author, sizeof p.author);
   strlcpy(p.version, e["version"] | "", sizeof p.version);
@@ -76,48 +72,185 @@ static bool add(JsonVariantConst e, const char* name, const char* author, const 
   return true;
 }
 
-const char* fwhub::fetch(const Fm1Id* dev) {
-  count = 0;
+// the response's body into f, as it comes (MIDI keeps going): its length, or -1 if f couldn't take it
+static int32_t pull(HTTPClient& http, File& f, uint32_t max, mbedtls_sha256_context* sha,
+                    void (*progress)(uint32_t, uint32_t), uint32_t total) {
+  WiFiClient* s = http.getStreamPtr();
+  int left = http.getSize();  // -1: chunked, unknown
+  uint32_t got = 0, last = millis();
+  static uint8_t buf[4096];
+  while (http.connected() && (left > 0 || left == -1) && got <= max) {
+    size_t n = s->available();
+    if (!n) {
+      if (millis() - last > 15000) {
+        break;
+      }
+      hub.poll();
+      delay(2);
+      continue;
+    }
+    n = s->readBytes(buf, n > sizeof buf ? sizeof buf : n);
+    if (f.write(buf, n) != n) {
+      return -1;
+    }
+    if (sha) {
+      mbedtls_sha256_update_ret(sha, buf, n);
+    }
+    got += n;
+    if (left > 0) {
+      left -= n;
+    }
+    last = millis();
+    if (progress) {
+      progress(got, total);
+    }
+    hub.poll();
+  }
+  return got;
+}
+
+// the catalogue onto the card, unless the copy there is the latest (its ETag): error, or 0
+static const char* getCatalog(fs::FS& fs) {
+  char etag[96] = "";
+  File t = fs.open(HUB_ETAG);
+  if (t && fs.exists(HUB_CATALOG)) {
+    etag[t.readBytes(etag, sizeof etag - 1)] = 0;
+  }
+  t.close();
   WiFiClientSecure tls;
   tls.setCACert(ROOTS);
   HTTPClient http;
-  http.useHTTP10(true);  // no chunks: the JSON straight from the socket
-  http.setUserAgent("fm1buddy");
   http.setTimeout(15000);
+  http.setUserAgent("fm1buddy");
+  const char* keep[] = {"ETag"};
+  http.collectHeaders(keep, 1);
   if (!http.begin(tls, HUB_SITE "catalog.json")) {
     return "Can't reach thefirmwarehub.com.";
   }
+  if (etag[0]) {
+    http.addHeader("If-None-Match", etag);
+  }
   int code = http.GET();
+  if (code == HTTP_CODE_NOT_MODIFIED) {
+    http.end();
+    return 0;
+  }
   if (code != HTTP_CODE_OK) {
     snprintf(err, sizeof err, "The catalogue didn't come (%s).", code < 0 ? http.errorToString(code).c_str() : String(code).c_str());
     http.end();
     return err;
   }
-  JsonDocument filter;
+  String tag = http.header("ETag");
+  int size = http.getSize();
+  File f = fs.open(HUB_CATALOG ".part", "w");
+  if (!f) {
+    http.end();
+    return "Can't write to the SD card.";
+  }
+  int32_t got = pull(http, f, 4 << 20, 0, 0, 0);
+  http.end();
+  f.close();
+  if (got < 0 || (size > 0 && got != size)) {
+    fs.remove(HUB_CATALOG ".part");
+    return got < 0 ? "Can't write to the SD card (is it full?)." : "The catalogue stopped part way.";
+  }
+  fs.remove(HUB_CATALOG);
+  fs.remove(HUB_ETAG);
+  if (!fs.rename(HUB_CATALOG ".part", HUB_CATALOG)) {
+    return "Can't rename it on the SD card.";
+  }
+  t = fs.open(HUB_ETAG, "w");
+  t.print(tag);
+  t.close();
+  return 0;
+}
+
+static int skipSpace(Stream& s) {
+  while (s.peek() == ' ' || s.peek() == '\n' || s.peek() == '\r' || s.peek() == '\t') {
+    s.read();
+  }
+  return s.peek();
+}
+
+// the catalogue from the card, one entry at a time (all of it doesn't fit in memory): error, or 0
+static const char* readCatalog(fs::FS& fs, const char* model) {
+  File f = fs.open(HUB_CATALOG);
+  if (!f || skipSpace(f) != '{') {
+    return "The catalogue didn't read.";
+  }
+  f.read();
+  JsonDocument filter, stockFilter, none, key, e;
   for (const char* k : {"name", "author", "version", "pkg", "product", "size", "sha256", "beta"}) {
-    filter["firmwares"][0][k] = true;
+    filter[k] = true;
   }
   for (const char* k : {"pkg", "product", "size", "sha256"}) {
-    filter["stock"][k] = true;
+    stockFilter[k] = true;
   }
-  JsonDocument doc;
-  Stream& body = http.getStream();
-  body.setTimeout(15000);  // (Stream's, in ms) a slow network pauses longer than the second it waits by default
-  DeserializationError e = deserializeJson(doc, body, DeserializationOption::Filter(filter));
-  http.end();
-  if (e) {
-    snprintf(err, sizeof err, "The catalogue didn't read (%s).", e.c_str());
+  none.set(false);  // skip the value
+  HubPkg stock;
+  bool gotStock = false;
+  DeserializationError bad = DeserializationError::Ok;
+  while (!bad && skipSpace(f) == '"') {  // each key of the top level
+    bad = deserializeJson(key, f);
+    if (bad || skipSpace(f) != ':') {
+      break;
+    }
+    f.read();
+    if (key.as<String>() == "firmwares" && skipSpace(f) == '[') {
+      f.read();
+      while (skipSpace(f) != ']' && f.available()) {
+        bad = deserializeJson(e, f, DeserializationOption::Filter(filter));
+        if (bad) {
+          break;
+        }
+        if (fwhub::count < HUB_MAX && read(e, e["name"] | "?", e["author"] | "", model, fwhub::list[fwhub::count])) {
+          fwhub::count++;
+        }
+        if (skipSpace(f) == ',') {
+          f.read();
+        }
+      }
+      f.read();  // ]
+    } else if (key.as<String>() == "stock") {
+      bad = deserializeJson(e, f, DeserializationOption::Filter(stockFilter));
+      gotStock = !bad && read(e, "M-VAVE stock", "M-VAVE", model, stock);
+    } else {
+      bad = deserializeJson(e, f, DeserializationOption::Filter(none));
+    }
+    if (skipSpace(f) == ',') {
+      f.read();
+    }
+  }
+  f.close();
+  if (bad) {
+    snprintf(err, sizeof err, "The catalogue didn't read (%s).", bad.c_str());
     return err;
   }
-  const char* model = dev && !dev->ota() ? dev->model : "FM-1";
-  add(doc["stock"], "M-VAVE stock", "M-VAVE", model);
-  int first = count;  // the rest by name
-  for (JsonVariantConst f : doc["firmwares"].as<JsonArrayConst>()) {
-    add(f, f["name"] | "?", f["author"] | "", model);
-  }
-  std::sort(list + first, list + count, [](const HubPkg& a, const HubPkg& b) {
+  std::sort(fwhub::list, fwhub::list + fwhub::count, [](const HubPkg& a, const HubPkg& b) {
     return strcasecmp(a.name, b.name) < 0;
   });
+  if (gotStock) {  // M-VAVE's own first
+    if (fwhub::count == HUB_MAX) {
+      fwhub::count--;
+    }
+    memmove(fwhub::list + 1, fwhub::list, fwhub::count * sizeof(HubPkg));
+    fwhub::list[0] = stock;
+    fwhub::count++;
+  }
+  return 0;
+}
+
+const char* fwhub::fetch(const Fm1Id* dev, fs::FS& fs) {
+  count = 0;
+  const char* why = getCatalog(fs);
+  if (why && !fs.exists(HUB_CATALOG)) {
+    return why;  // and no copy from before to use
+  }
+  const char* model = dev && !dev->ota() ? dev->model : "FM-1";
+  why = readCatalog(fs, model);
+  if (why) {
+    return why;
+  }
   if (!count) {
     snprintf(err, sizeof err, "Nothing in the catalogue for %s.", model);
     return err;
@@ -150,35 +283,8 @@ const char* fwhub::download(const HubPkg& p, fs::FS& fs, const char* path, void 
   mbedtls_sha256_context sha;
   mbedtls_sha256_init(&sha);
   mbedtls_sha256_starts_ret(&sha, 0);
-  WiFiClient* s = http.getStreamPtr();
-  int left = http.getSize();  // -1: chunked, unknown
-  uint32_t got = 0, last = millis();
-  static uint8_t buf[4096];
-  bool ok = true;
-  while (http.connected() && (left > 0 || left == -1) && got <= p.size) {
-    size_t n = s->available();
-    if (!n) {
-      if (millis() - last > 15000) {
-        break;
-      }
-      hub.poll();
-      delay(2);
-      continue;
-    }
-    n = s->readBytes(buf, n > sizeof buf ? sizeof buf : n);
-    if (f.write(buf, n) != n) {
-      ok = false;
-      break;
-    }
-    mbedtls_sha256_update_ret(&sha, buf, n);
-    got += n;
-    if (left > 0) {
-      left -= n;
-    }
-    last = millis();
-    progress(got, p.size);
-    hub.poll();
-  }
+  int32_t got = pull(http, f, p.size, &sha, progress, p.size);
+  bool ok = got >= 0;
   http.end();
   f.close();
   uint8_t sum[32];
@@ -189,7 +295,7 @@ const char* fwhub::download(const HubPkg& p, fs::FS& fs, const char* path, void 
     sprintf(hex + i * 2, "%02x", sum[i]);
   }
   const char* why = !ok                         ? "Can't write to the SD card (is it full?)."
-                    : got != p.size             ? "The download stopped part way."
+                    : (uint32_t)got != p.size   ? "The download stopped part way."
                     : strcasecmp(hex, p.sha256) ? "The download isn't what the catalogue says (sha256): not kept."
                                                 : 0;
   if (!why) {

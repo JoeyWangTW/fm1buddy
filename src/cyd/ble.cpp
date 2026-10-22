@@ -36,6 +36,7 @@ struct Ev {
 static RingbufHandle_t evq;
 static Preferences prefs;
 static bool on, searching, dirty;
+static bool up, wasOn;  // up: the NimBLE stack is running (not paused for Wi-Fi)
 static uint32_t scanAt;
 static NimBLEServer* server;
 static NimBLECharacteristic* chr;
@@ -376,7 +377,7 @@ void ble::send(uint8_t d, const uint8_t* p, uint32_t n) {
 
 // ------------------------------------------------------------------------------------------ the loop ---
 void ble::pump() {
-  if (!evq) {
+  if (!up) {
     return;
   }
   size_t n;
@@ -505,7 +506,7 @@ static void dial(int i) {
 }
 
 void ble::loop() {
-  if (!evq) {
+  if (!up) {
     return;
   }
   for (int k = 0; k < BLE_SAVED; k++) {
@@ -548,13 +549,8 @@ void ble::loop() {
 }
 
 // ----------------------------------------------------------------------------------------------- api ---
-void ble::begin(bool want) {
-  evq = xRingbufferCreate(8192, RINGBUF_TYPE_NOSPLIT);
-  prefs.begin("fm1bt");
-  load();
-  for (auto& k : cls) {
-    k.peer = k.slot = -1;
-  }
+// the NimBLE stack, its MIDI service, and scanning
+static void start() {
   NimBLEDevice::init(BLE_NAME);
   NimBLEDevice::setSecurityAuth(true, false, true);  // bond if asked ("just works")
   server = NimBLEDevice::createServer();
@@ -577,12 +573,57 @@ void ble::begin(bool want) {
   sc->setMaxResults(0);     // only the callback
   sc->setInterval(100);
   sc->setWindow(50);
+  up = true;
+}
+
+void ble::begin(bool want) {
+  evq = xRingbufferCreate(8192, RINGBUF_TYPE_NOSPLIT);
+  prefs.begin("fm1bt");
+  load();
+  for (auto& k : cls) {
+    k.peer = k.slot = -1;
+  }
+  start();
   on = !want;
   setOn(want);
 }
 
+// Wi-Fi and a TLS connection don't fit next to NimBLE in the ESP32's memory: stop it all while online
+void ble::pause(bool want) {
+  if (!evq || want == !up) {
+    return;
+  }
+  if (want) {
+    wasOn = on;
+    up = false;
+    NimBLEDevice::deinit(true);  // closes the connections, frees the server and the clients
+    server = 0;
+    chr = 0;
+    for (auto& k : cls) {
+      k.c = 0;
+      k.ch = 0;
+      k.st = IDLE;
+      k.peer = k.slot = -1;
+    }
+    for (int s = 0; s < SLOTS; s++) {
+      release(s);
+    }
+    size_t n;
+    void* b;
+    while ((b = xRingbufferReceive(evq, &n, 0))) {  // what came in before it stopped
+      vRingbufferReturnItem(evq, b);
+    }
+    on = false;
+  } else {
+    start();
+    on = !wasOn;
+    setOn(wasOn);  // the saved devices connect again when they're found
+  }
+  dirty = true;
+}
+
 void ble::setOn(bool want) {
-  if (!evq || want == on) {
+  if (!up || want == on) {
     return;
   }
   on = want;
@@ -609,7 +650,7 @@ bool ble::isOn() {
 }
 
 void ble::search(bool want) {
-  if (searching && !want && evq) {
+  if (searching && !want && up) {
     NimBLEDevice::getScan()->stop();
   }
   searching = want;

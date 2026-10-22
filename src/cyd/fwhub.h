@@ -10,6 +10,8 @@
 
 #define HUB_SITE "https://thefirmwarehub.com/"
 #define HUB_MAX 96
+#define HUB_CATALOG "/fm1/.catalog.json"  // the catalogue, kept on the SD card
+#define HUB_ETAG "/fm1/.catalog.etag"     // its version: fetched again only when it changed
 
 struct HubPkg {
   char name[24];
@@ -29,8 +31,9 @@ extern int count;
 
 // join a Wi-Fi network (idle() is called while it waits): error, or 0
 const char* join(const char* ssid, const char* pass, void (*idle)());
-// the catalogue's packages for this device (0: for any FM-1), M-VAVE's own first: error, or 0
-const char* fetch(const Fm1Id* dev);
+// the catalogue's packages for this device (0: for any FM-1), M-VAVE's own first: error, or 0. The catalogue is kept
+// on fs, and read from it one entry at a time; offline, the copy there is used
+const char* fetch(const Fm1Id* dev, fs::FS& fs);
 // the package to path, checked against its size and sha256 before it gets that name: error, or 0
 const char* download(const HubPkg& p, fs::FS& fs, const char* path, void (*progress)(uint32_t done, uint32_t size));
 }  // namespace fwhub

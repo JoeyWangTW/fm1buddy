@@ -234,7 +234,9 @@ fm1/
   no computer needed. The first time, it lists the Wi-Fi networks: tap yours and type its password (or put a
   `wifi.txt` on the card: the network's name on the first line, its password on the second). It shows the packages for
   the FM-1 on the hub (M-VAVE's own first; green: on the card already). Tap one, **DOWNLOAD**, then **INSTALL**. Each
-  download is checked against the catalogue's size and sha256, and the package's own identity, before it's kept.
+  download is checked against the catalogue's size and sha256, and the package's own identity, before it's kept. The
+  catalogue is kept on the card (`fm1/.catalog.json`), and only fetched again when it changed (or used as it is,
+  offline).
 - Tap a package, then **INSTALL**. It checks that the package is for the FM-1 that is plugged in, then installs it.
   Keep the FM-1 plugged in until it says _Installed_.
 - If an install was cut off, the FM-1 waits in update mode: tap a package and **FINISH** writes it.
@@ -258,7 +260,8 @@ The box needs this release's firmware too (the BLUETOOTH page says so if it does
   connect. It's remembered, and connected again whenever it's switched on near the CYD; tap it again to forget it.
 - Up to 3 Bluetooth connections in all (the phone or computer counts as one). **BLUETOOTH: ON/OFF** turns it all off.
 
-Bluetooth adds a little delay next to USB, and more while the CYD uses Wi-Fi (**ONLINE**).
+Bluetooth adds a little delay next to USB. While the CYD is online (**ONLINE**), Bluetooth stops (Wi-Fi needs its
+memory): back on **FILES**, it starts again, and the remembered devices connect again.
 
 ### MIDI mapping
 
