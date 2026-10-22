@@ -16,7 +16,7 @@ void (*jobDone)();
 
 using namespace ui;
 
-static lv_obj_t *rail, *pageObj, *tabs[3], *stSd, *stWifi, *stBt, *stFm1;
+static lv_obj_t *rail, *pageObj, *tabs[TABS], *stSd, *stWifi, *stBt, *stFm1;
 static Tab tab = FIRMWARE;
 static Builder current = firmwarePage;
 static bool wasRunning;
@@ -264,7 +264,7 @@ static void railStatus() {
 }
 
 static void markTab() {
-  for (int i = 0; i < 3; i++) {
+  for (int i = 0; i < TABS; i++) {
     if (i == tab) {
       lv_obj_add_state(tabs[i], LV_STATE_CHECKED);
     } else {
@@ -301,7 +301,7 @@ void ui::go(Tab t, Builder b) {
 }
 
 static void tabClicked(lv_event_t* e) {
-  static const Builder home[] = {firmwarePage, midiPage, settingsPage};
+  static const Builder home[] = {firmwarePage, midiPage, soundsPage, settingsPage};
   Tab t = (Tab)(intptr_t)lv_event_get_user_data(e);
   go(t, home[t]);
 }
@@ -319,10 +319,10 @@ static void build() {
   lv_obj_set_style_pad_ver(rail, 4, 0);
   lv_obj_set_style_pad_row(rail, 4, 0);
   lv_obj_set_flex_align(rail, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  static const char* icons[] = {LV_SYMBOL_DOWNLOAD, LV_SYMBOL_AUDIO, LV_SYMBOL_SETTINGS};
-  for (int i = 0; i < 3; i++) {
+  static const char* icons[] = {LV_SYMBOL_DOWNLOAD, LV_SYMBOL_AUDIO, LV_SYMBOL_DIRECTORY, LV_SYMBOL_SETTINGS};
+  for (int i = 0; i < TABS; i++) {
     tabs[i] = button(rail, icons[i], tabClicked, (void*)(intptr_t)i);
-    lv_obj_set_size(tabs[i], 40, 40);
+    lv_obj_set_size(tabs[i], 40, 36);
     lv_obj_set_style_bg_opa(tabs[i], LV_OPA_TRANSP, 0);
     lv_obj_set_style_text_color(tabs[i], color(t.dim), 0);
     lv_obj_set_style_text_font(tabs[i], &lv_font_montserrat_20, 0);
@@ -332,8 +332,12 @@ static void build() {
   }
   lv_obj_t* gap = ui::box(rail);
   lv_obj_set_flex_grow(gap, 1);
-  stWifi = label(rail, LV_SYMBOL_WIFI, &lv_font_montserrat_16, t.dim);
-  stBt = label(rail, LV_SYMBOL_BLUETOOTH, &lv_font_montserrat_16, t.dim);
+  lv_obj_t* radios = ui::box(rail, LV_FLEX_FLOW_ROW);  // side by side: four tabs and all this fit
+  lv_obj_set_width(radios, RAIL_W);
+  lv_obj_set_flex_align(radios, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_column(radios, 2, 0);
+  stWifi = label(radios, LV_SYMBOL_WIFI, &lv_font_montserrat_16, t.dim);
+  stBt = label(radios, LV_SYMBOL_BLUETOOTH, &lv_font_montserrat_16, t.dim);
   lv_obj_set_style_opa(stBt, LV_OPA_TRANSP, 0);
   stSd = label(rail, LV_SYMBOL_SD_CARD, &lv_font_montserrat_16, t.dim);
   stFm1 = label(rail, "FM-1", &lv_font_montserrat_12, t.dim);

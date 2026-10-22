@@ -1,0 +1,333 @@
+// Sounds: the device (the FM-1, or anything on the hub), what its firmware speaks, recording what it sends, and the
+// .syx files on the SD card (to look in, and send to it)
+#include <stdio.h>
+#include <string.h>
+
+#include "fm1.h"
+#include "hal.h"
+#include "jobs.h"
+#include "midi.h"
+#include "sounds.h"
+#include "ui_priv.h"
+
+using namespace ui;
+
+static int dev = -1;           // the device
+static uint32_t devSerial;     // its mount
+static uint32_t probedSerial;  // the mount the chips are about
+static sounds::Speaks speaks;
+static bool recording;
+static uint32_t shownSeq;
+static lv_obj_t *status, *recLabel;
+static bool asking;      // the chips wait for a probe
+static std::string sel;  // the file shown
+static bool sure;        // send: tapped once
+
+// the device: the one picked if it's still there; else the FM-1; else the first one
+static void pickDevice() {
+  midi::Dev v;
+  if (dev >= 0 && midi::dev(dev, v) && v.serial == devSerial) {
+    return;
+  }
+  dev = fm1::current();
+  for (int d = 0; dev < 0 && d < MIDI_DEVS; d++) {
+    if (midi::dev(d, v)) {
+      dev = d;
+    }
+  }
+  devSerial = dev >= 0 && midi::dev(dev, v) ? v.serial : 0;
+}
+
+static void finishRecording(bool keep) {
+  std::vector<uint8_t> data;
+  midi::captured(dev, data);
+  midi::capture(dev, false);
+  recording = false;
+  if (!keep) {
+    return;
+  }
+  if (data.empty()) {
+    toast("Nothing came.", true);
+    return;
+  }
+  std::string name = sounds::save(data, "recorded");
+  if (name.empty()) {
+    toast("Can't write it to the SD card.", true);
+  } else {
+    toast(("Saved as " SYX_DIR "/" + name + ".").c_str());
+  }
+}
+
+// --------------------------------------------------------------------------------------- the file ---
+static void sent() {
+  if (jobs::kind != jobs::SEND) {
+    return;
+  }
+  toast(jobs::ok ? "Sent." : jobs::error.c_str(), !jobs::ok);
+  sure = false;
+  go(syxPage);
+}
+
+static void sendTapped(lv_event_t* e) {
+  if (!sure) {
+    sure = true;
+    lv_label_set_text(lv_obj_get_child((lv_obj_t*)lv_event_get_target(e), 0), "Sure? Tap again");
+    return;
+  }
+  if (!jobs::send(dev, sel)) {
+    toast("Busy: try again in a moment.", true);
+  }
+  go(syxPage);
+}
+
+static void syxTick() {
+  if (jobs::running && status) {
+    lv_label_set_text(status, jobs::status().c_str());
+  }
+}
+
+void ui::syxPage(lv_obj_t* page) {
+  const Theme& t = theme();
+  header(page, sel.c_str(), soundsPage);
+  lv_obj_t* body = scroller(page);
+  lv_obj_set_style_pad_row(body, 4, 0);
+  std::vector<uint8_t> data;
+  if (!sounds::load(sel, data)) {
+    label(body, "Can't read it from the SD card.", &lv_font_montserrat_14, t.knob[0]);
+    return;
+  }
+  sounds::Info info = sounds::describe(data);
+  char s[64];
+  snprintf(s, sizeof s, "%s, %u bytes", info.kind.c_str(), (unsigned)data.size());
+  label(body, s, &lv_font_montserrat_14, t.text);
+  if (!info.good) {
+    lv_obj_t* l = label(body, "Something in it isn't right (a checksum, or bytes outside SysEx): it may not load.",
+                        &lv_font_montserrat_12, t.knob[1]);
+    lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(l, LV_PCT(100));
+  }
+  if (!info.names.empty()) {
+    // the voice names, two to a row
+    lv_obj_t* grid = box(body, LV_FLEX_FLOW_ROW_WRAP);
+    for (size_t i = 0; i < info.names.size(); i++) {
+      char n[24];
+      snprintf(n, sizeof n, "%2d %s", (int)i + 1, info.names[i].c_str());
+      lv_obj_t* l = line(grid, n, &lv_font_montserrat_12, t.dim);
+      lv_obj_set_width(l, LV_PCT(50));
+    }
+  }
+  midi::Dev v;
+  bool there = dev >= 0 && midi::dev(dev, v);
+  lv_obj_t* row = box(body, LV_FLEX_FLOW_ROW);
+  lv_obj_set_style_pad_top(row, 6, 0);
+  if (jobs::running) {
+    status = label(row, jobs::status().c_str(), &lv_font_montserrat_14, t.accent);
+  } else {
+    status = 0;
+    std::string to = there ? std::string("Send to ") + v.name : "Nothing to send it to";
+    lv_obj_t* b = button(row, to.c_str(), sendTapped);
+    if (!there || !info.messages) {
+      lv_obj_add_state(b, LV_STATE_DISABLED);
+    }
+  }
+  if (there && info.messages) {
+    const char* what = info.kind == "DX7 bank: 32 voices" ? "It replaces the 32 voices the device has in that bank."
+                       : info.kind == "DX7 voice"         ? "It replaces the voice the device is on (save it there to keep it)."
+                                                          : "What it does is up to the device's firmware.";
+    lv_obj_t* l = label(body, what, &lv_font_montserrat_12, t.dim);
+    lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(l, LV_PCT(100));
+  }
+  tick = syxTick;
+  jobDone = sent;
+}
+
+// -------------------------------------------------------------------------------------------- page ---
+static void openFile(lv_event_t* e) {
+  sel = *(std::string*)lv_event_get_user_data(e);
+  sure = false;
+  go(syxPage);
+}
+
+static void pickChanged(lv_event_t* e) {
+  int i = lv_dropdown_get_selected((lv_obj_t*)lv_event_get_target(e));
+  for (int d = 0; d < MIDI_DEVS; d++) {
+    midi::Dev v;
+    if (midi::dev(d, v) && !i--) {
+      if (recording) {
+        finishRecording(false);
+      }
+      dev = d;
+      devSerial = v.serial;
+    }
+  }
+  go(soundsPage);
+}
+
+static void recordTapped(lv_event_t*) {
+  if (recording) {
+    finishRecording(true);
+  } else {
+    midi::capture(dev, true);
+    recording = true;
+  }
+  go(soundsPage);
+}
+
+static void cancelTapped(lv_event_t*) {
+  finishRecording(false);
+  go(soundsPage);
+}
+
+static void voiceTapped(lv_event_t*) {
+  if (!jobs::voice(dev)) {
+    toast("Busy: try again in a moment.", true);
+  }
+  go(soundsPage);
+}
+
+static void soundsDone() {
+  if (jobs::kind == jobs::PROBE) {
+    if (jobs::device == dev) {
+      speaks = jobs::speaks;
+      probedSerial = devSerial;
+    }
+  } else if (jobs::kind == jobs::VOICE) {
+    toast(jobs::ok ? ("Saved as " SYX_DIR "/" + jobs::saved + ".").c_str() : jobs::error.c_str(), !jobs::ok);
+  }
+  go(soundsPage);
+}
+
+static void soundsTick() {
+  if (midi::seq != shownSeq || (asking && !jobs::running)) {
+    go(soundsPage);  // a device came or went
+    return;
+  }
+  if (status) {
+    lv_label_set_text(status, jobs::running ? jobs::status().c_str() : "");
+    lv_obj_update_flag(status, LV_OBJ_FLAG_HIDDEN, !jobs::running);
+  }
+  if (recording && recLabel) {
+    std::vector<uint8_t> data;
+    midi::captured(dev, data);
+    sounds::Info info = sounds::describe(data);
+    lv_label_set_text_fmt(recLabel, "Recording: %d message%s, %u bytes", info.messages, info.messages == 1 ? "" : "s",
+                          (unsigned)data.size());
+  }
+}
+
+void ui::soundsPage(lv_obj_t* page) {
+  const Theme& t = theme();
+  header(page, "Sounds");
+  lv_obj_t* body = scroller(page);
+  lv_obj_set_style_pad_row(body, 4, 0);
+  shownSeq = midi::seq;
+  status = recLabel = 0;
+  if (recording) {
+    midi::Dev v;
+    if (!midi::dev(dev, v) || v.serial != devSerial) {
+      recording = false;  // it went
+    }
+  }
+  pickDevice();
+
+  // the device
+  std::string opts;
+  int n = 0, at = 0;
+  for (int d = 0; d < MIDI_DEVS; d++) {
+    midi::Dev v;
+    if (midi::dev(d, v)) {
+      const Fm1Id* id = fm1::known(d);
+      opts += (n ? "\n" : "") + std::string(v.name) + (id && !id->ota() ? std::string("  ") + id->text : "");
+      if (d == dev) {
+        at = n;
+      }
+      n++;
+    }
+  }
+  if (!n) {
+    lv_obj_t* l = label(body,
+                        "Nothing on the hub. Plug in the FM-1: its sounds can be recorded to the SD card, and "
+                        ".syx files on the card (in " SYX_DIR ") sent to it.",
+                        &lv_font_montserrat_14, t.dim);
+    lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(l, LV_PCT(100));
+  } else {
+    lv_obj_t* dd = lv_dropdown_create(body);
+    lv_dropdown_set_options(dd, opts.c_str());
+    lv_dropdown_set_selected(dd, at);
+    lv_obj_set_width(dd, LV_PCT(100));
+    lv_obj_add_event_cb(dd, pickChanged, LV_EVENT_VALUE_CHANGED, 0);
+
+    // what it speaks: asked once per mount (only an FM-1: never other gear)
+    lv_obj_t* chips = box(body, LV_FLEX_FLOW_ROW_WRAP);
+    lv_obj_set_style_pad_column(chips, 4, 0);
+    lv_obj_set_style_pad_row(chips, 4, 0);
+    bool asked = probedSerial == devSerial;
+    asking = false;
+    if (!fm1::candidate(dev)) {
+      label(chips, "Not an FM-1: SysEx only", &lv_font_montserrat_12, t.dim);
+    } else if (!asked) {
+      if (!jobs::running && !fm1::busy) {
+        jobs::probe(dev);
+      }
+      asking = true;
+      label(chips, "Asking what it speaks...", &lv_font_montserrat_12, t.dim);
+    } else {
+      if (speaks.stockVoice) {
+        chip(chips, "M-VAVE voice", t.knob[2]);
+      }
+      if (speaks.felucca) {
+        chip(chips, speaks.version[0] ? speaks.version : "Felucca editor", t.knob[3]);
+      }
+      if (speaks.open) {
+        chip(chips, "M-VAVE Open", t.knob[1]);
+      }
+      if (!speaks.stockVoice && !speaks.felucca && !speaks.open) {
+        label(chips, "SysEx only", &lv_font_montserrat_12, t.dim);
+      }
+    }
+
+    // record; its voice
+    lv_obj_t* row = box(body, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_column(row, 6, 0);
+    lv_obj_t* rec = button(row, recording ? LV_SYMBOL_STOP " Save" : LV_SYMBOL_PLAY " Record", recordTapped);
+    if (recording) {
+      lv_obj_add_state(rec, LV_STATE_CHECKED);
+      button(row, "Cancel", cancelTapped);
+    } else if (asked && speaks.stockVoice) {
+      lv_obj_t* b = button(row, "Save its voice", voiceTapped);
+      if (jobs::running) {
+        lv_obj_add_state(b, LV_STATE_DISABLED);
+      }
+    }
+    const char* about = recording ? "" : "Record keeps whatever SysEx it sends (start a dump from its menu), as a .syx.";
+    recLabel = label(body, about, &lv_font_montserrat_12, recording ? t.accent : t.dim);
+    lv_label_set_long_mode(recLabel, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(recLabel, LV_PCT(100));
+    status = label(body, jobs::running ? jobs::status().c_str() : "", &lv_font_montserrat_12, t.accent);
+    lv_obj_update_flag(status, LV_OBJ_FLAG_HIDDEN, !jobs::running);
+  }
+
+  // the files
+  lv_obj_t* h = label(body, "On the SD card (" SYX_DIR ")", &lv_font_montserrat_14, t.text);
+  lv_obj_set_style_pad_top(h, 6, 0);
+  static std::vector<std::string> names;
+  names.clear();
+  auto files = sounds::list();
+  names.reserve(files.size());
+  for (auto& f : files) {
+    names.push_back(f.name);
+    lv_obj_t* r = listRow(body, openFile, &names.back());
+    lv_obj_t* l = line(r, f.name.c_str(), &lv_font_montserrat_16, t.text);
+    lv_obj_set_flex_grow(l, 1);
+    char s[16];
+    snprintf(s, sizeof s, f.size < 10240 ? "%u B" : "%u KB", (unsigned)(f.size < 10240 ? f.size : f.size / 1024));
+    label(r, s, &lv_font_montserrat_12, t.dim);
+  }
+  if (files.empty()) {
+    label(body, hal::sd() ? "No .syx files yet." : "No SD card.", &lv_font_montserrat_12, t.dim);
+  }
+  tick = soundsTick;
+  jobDone = soundsDone;
+}

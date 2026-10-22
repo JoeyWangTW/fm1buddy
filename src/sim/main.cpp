@@ -8,7 +8,7 @@
 // person would) if it doesn't finish, up to 3 times, then quits: 0 if it's installed, 1 if not.
 //
 // The script runs after start: tap X Y (screen pixels), drag X1 Y1 X2 Y2, wait MS, shot FILE (a .bmp of the
-// screen), quit. The SD card is the folder in FM1_SD (default: sim/sd).
+// screen), dump (the pretend FM-1 sends a DX7 bank), quit. The SD card is the folder in FM1_SD (default: sim/sd).
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
 #include <lvgl.h>
@@ -208,6 +208,8 @@ int main(int argc, char** argv) {
         c >> path;
         lv_refr_now(disp);
         shot(path.c_str());
+      } else if (cmd == "dump") {
+        fake::dump();
       } else if (cmd == "quit") {
         run = false;
       }

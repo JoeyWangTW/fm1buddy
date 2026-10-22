@@ -20,7 +20,9 @@
 namespace ui {
 enum Tab { FIRMWARE,
            MIDI,
-           SETTINGS };
+           SOUNDS,
+           SETTINGS,
+           TABS };
 typedef void (*Builder)(lv_obj_t* page);
 
 const Theme& theme();
@@ -53,6 +55,8 @@ lv_obj_t* chip(lv_obj_t* parent, const char* text, uint32_t color);
 // the pages
 void firmwarePage(lv_obj_t* page);
 void midiPage(lv_obj_t* page);
+void soundsPage(lv_obj_t* page);
+void syxPage(lv_obj_t* page);  // a .syx
 void settingsPage(lv_obj_t* page);
 void wifiPage(lv_obj_t* page);
 }  // namespace ui

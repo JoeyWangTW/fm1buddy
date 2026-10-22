@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include <atomic>
+#include <vector>
 
 #define MIDI_USB 4    // devices 0-3: USB, on the hub
 #define MIDI_DEVS 8   // 4-7: Bluetooth
@@ -47,6 +48,10 @@ void send(int d, const uint8_t* bytes, uint32_t n);  // MIDI bytes to device d
 bool sendWait(int d, const uint8_t* bytes, uint32_t n, uint32_t ms);
 uint32_t sysex(int d, uint8_t* out);  // the next complete SysEx (F0..F7) it sent, or 0
 void drain(int d);                    // forget the SysEx it sent
+// every SysEx device d sends, whole (any length, up to 1 MB), kept from capture(d, true) until capture(d, false)
+void capture(int d, bool on);
+// what was kept so far (complete messages, F0..F7 each)
+void captured(int d, std::vector<uint8_t>& out);
 
 // "note 60 ch 1", "cc 10 = 64 ch 2", ...
 void describe(const uint8_t m[3], char* out, int n);

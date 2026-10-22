@@ -53,6 +53,12 @@ const char* install(const Pkg& pkg, Fm1Progress cb, FILE* rec = 0);
 void watch();
 // what device d said it is (an FM-1, or its loader), or 0
 const Fm1Id* known(int d);
+// device d may be an FM-1, by its USB name: only those are asked anything (never other gear)
+bool candidate(int d);
+// M-VAVE's own SysEx (the updater's, the stock firmware's reads): cmd and payload, framed into out (F0..F7, up to
+// 2 + (n + 7) * 8 / 7 + 1 bytes); and back: the payload of a reply to cmd (into out, up to max), or -1
+uint32_t frame(uint8_t cmd, const uint8_t* payload, uint32_t n, uint8_t* out);
+int unframe(const uint8_t* pkt, uint32_t n, uint8_t cmd, uint8_t* out, uint32_t max);
 // the first device that answered, -1 if none
 int current();
 extern std::atomic<bool> busy;  // installing
