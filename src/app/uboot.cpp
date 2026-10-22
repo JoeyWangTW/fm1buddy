@@ -1,0 +1,216 @@
+#include "uboot.h"
+
+#include <string.h>
+
+#include <chrono>
+#include <thread>
+
+#include "hal.h"
+#include "midi.h"
+
+#define VID 0x4C4A
+#define PID 0x8057
+#define LOADER_SIZE 24064
+#define LOADER_AT 0x1C02000u
+#define IO 512
+
+// the ROM's
+#define WRITE_MEMORY 0xFB06
+#define JUMP 0xFB08
+// the loader's
+#define READ_FLASH 0xFD05
+#define READ_KEY 0xFC09
+#define GET_ONLINE_DEVICE 0xFC0A
+#define RUN_APP 0xFC0C
+
+static void wait(uint32_t ms) {
+  std::this_thread::sleep_for(std::chrono::milliseconds(ms));
+}
+
+static void be32(uint8_t* p, uint32_t v) {
+  p[0] = v >> 24, p[1] = v >> 16, p[2] = v >> 8, p[3] = v;
+}
+
+// CRC-16/XMODEM (poly 0x1021), from init
+static uint16_t crc16(const uint8_t* p, uint32_t n, uint16_t crc) {
+  while (n--) {
+    crc ^= (uint16_t)*p++ << 8;
+    for (int b = 0; b < 8; b++) {
+      crc = crc & 0x8000 ? (uint16_t)((crc << 1) ^ 0x1021) : (uint16_t)(crc << 1);
+    }
+  }
+  return crc;
+}
+
+// JieLi's jl_crc_cipher, key 0xFFFFFFFF (its magic: a fixed GB2312 string from their tools)
+static void cipher(uint8_t* p, uint32_t n) {
+  static const uint8_t MAGIC[16] = {0xC3, 0xCF, 0xC0, 0xE8, 0xCE, 0xD2, 0xB0, 0xAE,
+                                    0xC4, 0xE3, 0xA3, 0xAC, 0xD3, 0xF1, 0xC1, 0xD6};
+  static const uint8_t KEY[2] = {0xFF, 0xFF};
+  uint16_t crc = crc16(KEY, 2, 0xFFFF);
+  for (uint32_t i = 0; i < n; i++) {
+    crc = crc16(&MAGIC[i % 16], 1, crc);
+    p[i] ^= (uint8_t)crc;
+  }
+}
+
+// a command: its 16 bytes, cmd (BE) then args, the rest 0xFF
+static void cdbOf(uint8_t cdb[16], uint16_t cmd, const uint8_t* args, int n) {
+  memset(cdb, 0xFF, 16);
+  cdb[0] = cmd >> 8, cdb[1] = cmd & 0xFF;
+  memcpy(cdb + 2, args, n);
+}
+
+// one that answers 16 bytes, its command echoed first; its answer in resp. Up to tries times
+static bool exec(uint16_t cmd, const uint8_t* args, int n, uint8_t resp[16], int tries = 3, uint32_t ms = 2000) {
+  uint8_t cdb[16];
+  cdbOf(cdb, cmd, args, n);
+  for (int t = 0; t < tries; t++) {
+    uint32_t got = 0;
+    if (hal::storageCommand(cdb, 16, true, resp, 16, &got, ms) && got == 16 && resp[0] == (cmd >> 8) &&
+        resp[1] == (cmd & 0xFF)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool uboot::haveLoader() {
+  char hex[65];
+  std::string p = catalog::path(UBOOT_LOADER);
+  return !p.empty() && hal::sha256(p.c_str(), hex) && !strcmp(hex, UBOOT_LOADER_SHA256);
+}
+
+const char* uboot::enter(int d, Chip& chip) {
+  // the loader, from the SD card
+  std::vector<uint8_t> loader(LOADER_SIZE);
+  FILE* f = haveLoader() ? fopen(catalog::path(UBOOT_LOADER).c_str(), "rb") : 0;
+  bool got = f && fread(loader.data(), 1, LOADER_SIZE, f) == LOADER_SIZE;
+  if (f) {
+    fclose(f);
+  }
+  if (!got) {
+    return "JieLi's loader isn't on the SD card.";
+  }
+  // alone on the hub: the FM-1 doesn't take the key with another full-speed device there
+  for (int o = 0; o < MIDI_USB; o++) {
+    midi::Dev v;
+    if (o != d && midi::dev(o, v)) {
+      return "Unplug the other USB devices first: the FM-1 has to be alone on the hub.";
+    }
+  }
+  // the key: one 8-byte transfer (04 F0 22 24 07 35 7D F7), nothing else in it
+  static const uint8_t KEY[] = {0xF0, 0x22, 0x24, 0x35, 0x7D, 0xF7};
+  midi::thru = false;
+  bool sent = midi::sendWait(d, KEY, sizeof KEY, 1000);
+  midi::thru = true;
+  if (!sent) {
+    return "It didn't take MIDI.";
+  }
+  hal::log("uboot: key sent to %d", d);
+  uint32_t start = hal::millis();
+  while (!hal::storageThere(VID, PID)) {
+    if (hal::millis() - start > 10000) {
+      return "It didn't go into its boot loader (is it running stock V15, or a firmware like fomajam?).";
+    }
+    wait(50);
+  }
+  // it answers some time after it's there: INQUIRY until it does
+  uint8_t inq[36];
+  static const uint8_t INQUIRY[6] = {0x12, 0, 0, 0, 36, 0};
+  bool ready = false;
+  wait(1000);
+  for (int i = 0; i < 30 && !ready; i++) {
+    uint32_t n = 0;
+    ready = hal::storageCommand(INQUIRY, sizeof INQUIRY, true, inq, sizeof inq, &n, 1000) && n == sizeof inq;
+    if (!ready) {
+      wait(300);
+    }
+  }
+  if (!ready) {
+    return "Its boot loader didn't answer.";
+  }
+  hal::log("uboot: %.8s %.16s %.4s", (const char*)inq + 8, (const char*)inq + 16, (const char*)inq + 32);
+  // the loader into its RAM (as it comes: already ciphered), and run
+  for (uint32_t off = 0; off < LOADER_SIZE; off += IO) {
+    uint32_t n = std::min<uint32_t>(IO, LOADER_SIZE - off);
+    uint8_t args[9], cdb[16];
+    be32(args, LOADER_AT + off);
+    args[4] = n >> 8, args[5] = n & 0xFF, args[6] = 0;
+    uint16_t c = crc16(&loader[off], n, 0);
+    args[7] = c & 0xFF, args[8] = c >> 8;
+    cdbOf(cdb, WRITE_MEMORY, args, sizeof args);
+    bool ok = false;
+    for (int t = 0; t < 3 && !ok; t++) {  // (the same piece again: the same RAM)
+      ok = hal::storageCommand(cdb, 16, false, &loader[off], n, 0, 2000);
+    }
+    if (!ok) {
+      return "Its boot loader didn't take JieLi's loader.";
+    }
+  }
+  // run it; it's running when it answers READ_KEY (the jump's own answer may be lost, and the loader doesn't know
+  // JUMP: so it's asked only until the loader answers)
+  uint8_t args[6], key[4], resp[16];
+  be32(args, LOADER_AT);
+  args[4] = 0, args[5] = 1;
+  be32(key, 0x00AC6900);
+  bool running = false;
+  for (int t = 0; t < 3 && !running; t++) {
+    exec(JUMP, args, 6, resp, 1);
+    running = exec(READ_KEY, key, 4, resp);
+  }
+  if (!running) {
+    return "JieLi's loader didn't start.";
+  }
+  uint8_t k[2] = {resp[7], resp[6]};  // its answer's 4th and 5th, the other way round, deciphered
+  cipher(k, 2);
+  chip.key = k[0] | k[1] << 8;
+  if (!exec(GET_ONLINE_DEVICE, 0, 0, resp)) {
+    leave();
+    return "JieLi's loader didn't say what flash it has.";
+  }
+  chip.flashId = resp[4] | resp[5] << 8 | resp[6] << 16 | (uint32_t)resp[7] << 24;
+  uint8_t cap = chip.flashId & 0xFF;  // JEDEC: its size, as a power of 2
+  chip.size = cap >= 0x10 && cap <= 0x18 ? 1u << cap : 1024 * 1024;
+  hal::log("uboot: chip key %04X, flash %06X (%u KiB)", chip.key, (unsigned)chip.flashId, (unsigned)chip.size / 1024);
+  return 0;
+}
+
+const char* uboot::read(const Chip& chip, std::vector<uint8_t>& out, void (*progress)(uint32_t, uint32_t)) {
+  out.assign(chip.size, 0);
+  for (uint32_t at = 0; at < chip.size; at += IO) {
+    uint8_t args[6], cdb[16];
+    be32(args, at);
+    args[4] = IO >> 8, args[5] = IO & 0xFF;
+    cdbOf(cdb, READ_FLASH, args, 6);
+    bool ok = false;
+    for (int t = 0; t < 3 && !ok; t++) {
+      uint32_t got = 0;
+      ok = hal::storageCommand(cdb, 16, true, &out[at], IO, &got, 2000) && got == IO;
+    }
+    if (!ok) {
+      return "It stopped answering.";
+    }
+    if (progress && !(at % (16 * IO))) {
+      progress(at + IO, chip.size);
+    }
+  }
+  if (progress) {
+    progress(chip.size, chip.size);
+  }
+  return 0;
+}
+
+void uboot::leave() {
+  if (!hal::storageThere(VID, PID)) {
+    return;
+  }
+  uint8_t args[4], resp[16];
+  be32(args, 1);
+  exec(RUN_APP, args, 4, resp, 2, 500);  // (it may restart before it answers)
+  hal::log("uboot: back to its firmware");
+}
+
+bool uboot::stuck() {
+  return hal::storageThere(VID, PID);
+}

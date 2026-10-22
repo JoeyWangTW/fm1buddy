@@ -48,6 +48,12 @@ bool usbHost();
 // up to n USB MIDI packets (4 bytes each) to device d (midi.h: USB or Bluetooth): how many it took. From
 // midi::service
 uint32_t midiOut(int d, const uint8_t* packets, uint32_t n);
+// a USB storage device with this VID:PID on the hub (the FM-1's boot loader, uboot.h), spoken to in SCSI commands
+// (Bulk-Only Transport), from a job: it's there (its endpoints open)
+bool storageThere(uint16_t vid, uint16_t pid);
+// one command to it (cdb: cdbLen bytes, up to 16) and its data: len (up to 512) bytes in from it into buf, or out from
+// buf; true if it answered with status 0. *got: how many came in. Waits up to ms
+bool storageCommand(const uint8_t* cdb, uint8_t cdbLen, bool in, uint8_t* buf, uint32_t len, uint32_t* got, uint32_t ms);
 
 // Bluetooth MIDI: off (not even started) until it's turned on (the app saves the switch). Phones and computers connect to
 // "fm1buddy"; keyboards and synths are found while searching, and tapping one connects it (and remembers it, to

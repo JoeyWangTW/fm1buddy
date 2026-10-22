@@ -9,6 +9,12 @@ between the FM-1 and the SD card too, and so do
 .wav files): keep one setup per song, and load it before you play. A setup's patterns also export as MIDI files, and its
 kits as .wav files, for other gear.
 
+It also backs up all of the FM-1's flash to its SD card (Settings, Back up the FM-1): the firmware, and what the
+firmwares keep on it. It sends the FM-1 into the boot loader in its chip and reads it there, as
+[FM-1-transporter](https://github.com/kurogedelic/FM-1-transporter) does (but over the USB cable, from stock V15 or a
+firmware like fomajam, with no wiring), with JieLi's loader from [jl-uboot-tool](https://github.com/kagaimiq/jl-uboot-tool)
+(downloaded the first time). It only reads: nothing on the FM-1 changes.
+
 **Install it, and how to set it up:** <https://konsumer.github.io/fm1buddy/>
 
 <table>
@@ -57,7 +63,7 @@ logged on the hub, also in `fm1buddy/log.txt` on its SD card), and `host` (the U
 
 ```
 src/app/   the app (LVGL 9): pages, the Hub's list, MIDI between devices, the FM-1's update protocol, sounds (SysEx),
-           setups and fomajam's kits and MIDI files (sounds, kits, songmidi);
+           setups and fomajam's kits and MIDI files (sounds, kits, songmidi), backups (uboot);
            hal.h is what it needs from the board
 src/s3/    the board: screen, touch, SD, Wi-Fi, USB host (TinyUSB), Bluetooth MIDI (NimBLE)
 src/sim/   the simulator

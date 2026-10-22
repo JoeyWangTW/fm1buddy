@@ -18,6 +18,7 @@
 #define CFG_TUH_MIDI 4  // midi.h's MIDI_USB
 #define CFG_TUH_MIDI_STREAM_API 0
 #define CFG_TUH_DWC2_ENDPOINT_MAX 24
+#define CFG_TUH_API_EDPT_XFER 1  // the FM-1's boot loader: a storage device spoken to here, without TinyUSB's driver
 
 // not used: their buffers stay out of the internal RAM
 #undef CFG_TUH_CDC
