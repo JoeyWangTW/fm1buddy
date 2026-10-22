@@ -16,10 +16,11 @@ struct Dev {
   bool on;
   uint16_t vid, pid;
   char name[32];
-  uint32_t serial;  // new on every mount: a new device in the same slot is noticed
-  uint32_t lastIn;  // when it last sent something (ms)
-  uint8_t last[3];  // the last channel message it sent
-  uint32_t count;   // messages it sent
+  uint32_t serial;   // new on every mount: a new device in the same slot is noticed
+  uint32_t lastIn;   // when it last sent something (ms)
+  uint8_t last[3];   // the last channel message it sent
+  uint32_t count;    // messages it sent
+  uint32_t dropped;  // messages to it that didn't fit its queue (it doesn't take them fast enough)
 };
 
 extern std::atomic<bool> thru;     // everything to everything

@@ -5,6 +5,7 @@
 #include "fm1.h"
 #include "hal.h"
 #include "jobs.h"
+#include "midi.h"
 #include "src/themes/lv_theme_private.h"
 #include "ui_priv.h"
 
@@ -347,6 +348,24 @@ static void build() {
   railStatus();
 }
 
+// each device's messages, in the log once it has been quiet for 2 s (to count them after a test)
+static void logCounts() {
+  static uint32_t logged[MIDI_DEVS], dropped[MIDI_DEVS];
+  uint32_t now = hal::millis();
+  for (int d = 0; d < MIDI_DEVS; d++) {
+    midi::Dev v;
+    if (!midi::dev(d, v)) {
+      logged[d] = dropped[d] = 0;
+      continue;
+    }
+    if ((v.count != logged[d] || v.dropped != dropped[d]) && now - v.lastIn > 2000) {
+      logged[d] = v.count;
+      dropped[d] = v.dropped;
+      hal::log("midi: %s sent %u, %u to it dropped", v.name, (unsigned)v.count, (unsigned)v.dropped);
+    }
+  }
+}
+
 static void watch(lv_timer_t*) {
   if (wasRunning && !jobs::running) {
     if (jobs::ok && jobs::kind == jobs::HUB) {
@@ -363,6 +382,7 @@ static void watch(lv_timer_t*) {
   }
   wasRunning = jobs::running;
   fm1::watch();
+  logCounts();
   if (tick) {
     tick();
   }

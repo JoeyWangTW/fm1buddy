@@ -18,4 +18,5 @@ PlatformIO downloads these when it builds; their license notices apply to the bu
 | [TFT_eSPI](https://github.com/Bodmer/TFT_eSPI)                                                      | FreeBSD / MIT        |
 | Arduino-ESP32, ESP-IDF                                                                              | LGPL-2.1, Apache-2.0 |
 | [ArduinoJson](https://github.com/bblanchon/ArduinoJson)                                             | MIT                  |
+| [TinyUSB](https://github.com/hathach/tinyusb)                                                       | MIT                  |
 | [NimBLE-Arduino](https://github.com/h2zero/NimBLE-Arduino), Apache NimBLE                           | Apache-2.0           |
