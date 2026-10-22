@@ -60,5 +60,7 @@ void syxPage(lv_obj_t* page);    // a .syx
 void setupPage(lv_obj_t* page);  // a setup
 void settingsPage(lv_obj_t* page);
 void wifiPage(lv_obj_t* page);
-void backupPage(lv_obj_t* page);  // all of the FM-1's flash to the SD card
+void backupPage(lv_obj_t* page);     // all of the FM-1's flash to the SD card
+void diskStartPage(lv_obj_t* page);  // USB disk: what it is, and starting it
+void diskPage(lv_obj_t* page);       // USB disk mode itself (all of the screen)
 }  // namespace ui

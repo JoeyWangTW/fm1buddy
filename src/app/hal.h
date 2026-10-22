@@ -72,6 +72,16 @@ void bleToggle(int i);  // connect and remember peer i, or forget and disconnect
 bool bleChanged();      // the list changed (once)
 void bleHold(bool on);  // Bluetooth stops for a while (an FM-1 install), and comes back as it was
 
+// USB disk: the SD card as a USB drive for a computer on the USB-C port, instead of the hub. A mode the board restarts
+// into, and out of (diskModeSet; the simulator only pretends): in it, sd() is 0 (nothing here reads or writes the
+// card) and the USB host doesn't run
+bool diskMode();
+void diskModeSet(bool on);
+enum DiskState { DISK_WAITING,    // for a computer
+                 DISK_MOUNTED,    // a computer has it
+                 DISK_EJECTED };  // the computer let it go: it's safe to stop
+int diskState();
+
 // run fn on a thread of its own
 void spawn(void (*fn)(void*), void* arg);
 }  // namespace hal

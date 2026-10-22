@@ -8,6 +8,7 @@ namespace board {
 void begin();
 void usbBegin();      // the USB host, unless a computer is on the port (after the screen is up)
 void usbHostBegin();  // usb_s3.cpp
+void diskBegin();     // disk_s3.cpp: the USB port as a USB drive (the SD card), in USB disk mode
 void loop();
 // testing over the serial console: "host" starts as the USB host once (for 20 s), "log" prints the SD card's log
 void hostTestStart();

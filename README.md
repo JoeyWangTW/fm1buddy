@@ -15,6 +15,10 @@ firmwares keep on it. It sends the FM-1 into the boot loader in its chip and rea
 firmware like fomajam, with no wiring), with JieLi's loader from [jl-uboot-tool](https://github.com/kagaimiq/jl-uboot-tool)
 (downloaded the first time). It only reads: nothing on the FM-1 changes.
 
+To copy files to and from the SD card without taking it out, Settings has **USB disk**: fm1buddy restarts as a USB
+drive for a computer (plugged in instead of the hub), and nothing on it touches the card until you eject it on the
+computer and tap Done, which restarts it as it was.
+
 **Install it, and how to set it up:** <https://konsumer.github.io/fm1buddy/>
 
 <table>

@@ -9,7 +9,8 @@
 // times, then quits: 0 if it's installed, 1 if not.
 //
 // The script runs after start: tap X Y (screen pixels), drag X1 Y1 X2 Y2, wait MS, shot FILE (a .bmp of the
-// screen), dump (the pretend FM-1 sends a DX7 bank), play (fomajam starts or stops), quit. The SD card is the
+// screen), dump (the pretend FM-1 sends a DX7 bank), play (fomajam starts or stops), eject (the
+// computer lets go of the USB disk), quit. The SD card is the
 // folder in FM1_SD (default: sim/sd).
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
@@ -216,6 +217,9 @@ int main(int argc, char** argv) {
         fake::dump();
       } else if (cmd == "play") {
         fake::play();
+      } else if (cmd == "eject") {
+        extern void simDiskEject();
+        simDiskEject();
       } else if (cmd == "quit") {
         run = false;
       }

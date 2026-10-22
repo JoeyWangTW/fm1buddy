@@ -33,7 +33,37 @@ void hal::log(const char* fmt, ...) {
   fflush(stdout);
 }
 
+// USB disk mode, pretended: no restart, and no computer (it's "mounted" after a moment; the script's "eject" lets it
+// go)
+static bool disk;
+static uint32_t diskAt;
+static bool diskEjected;
+
+bool hal::diskMode() {
+  return disk;
+}
+
+void hal::diskModeSet(bool on) {
+  hal::log("usb: %s USB disk mode (a restart, on the board)", on ? "into" : "out of");
+  disk = on;
+  diskAt = hal::millis();
+  diskEjected = false;
+}
+
+int hal::diskState() {
+  return diskEjected ? DISK_EJECTED : disk && hal::millis() - diskAt > 1000 ? DISK_MOUNTED
+                                                                            : DISK_WAITING;
+}
+
+void simDiskEject() {
+  diskEjected = true;
+  hal::log("usb disk: ejected");
+}
+
 const char* hal::sd() {
+  if (disk) {
+    return 0;
+  }
   static std::string root;
   if (root.empty()) {
     const char* e = getenv("FM1_SD");
