@@ -37,6 +37,12 @@ pio run -e sim && .pio/build/sim/program --fm1 --keys
 .pio/build/sim/program --headless --script "tap 24 116; wait 300; shot settings.bmp; quit"
 ```
 
+`tools/install-test.sh` installs a package on the pretend FM-1, cleanly and with faults (lost and repeated requests,
+garbled answers, unplugged while writing), and checks it ends up exactly as the package.
+
+Each install on the board writes what went between it and the FM-1 to `fm1buddy/installs/N.txt` on the SD card (the
+last 10 are kept): send one along with a report of an install gone wrong.
+
 `tools/s3.py` (with `~/.platformio/penv/bin/python`) does the same on the board: `shot FILE`, `tap X Y`, `log` (what it
 logged on the hub, also in `fm1buddy/log.txt` on its SD card), and `host` (the USB host for 20 s).
 

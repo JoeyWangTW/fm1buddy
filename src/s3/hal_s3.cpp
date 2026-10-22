@@ -363,6 +363,21 @@ int hal::get(const char* url, const char* path, std::string* etag, void (*progre
   return status;
 }
 
+static void toHex(const uint8_t sum[32], char hex[65]) {
+  for (int i = 0; i < 32; i++) {
+    sprintf(hex + i * 2, "%02x", sum[i]);
+  }
+}
+
+bool hal::sha256(const uint8_t* p, size_t n, char hex[65]) {
+  uint8_t sum[32];
+  if (mbedtls_sha256(p, n, sum, 0)) {
+    return false;
+  }
+  toHex(sum, hex);
+  return true;
+}
+
 bool hal::sha256(const char* path, char hex[65]) {
   FILE* f = fopen(path, "rb");
   if (!f) {
@@ -379,9 +394,7 @@ bool hal::sha256(const char* path, char hex[65]) {
   uint8_t sum[32];
   mbedtls_sha256_finish(&ctx, sum);
   mbedtls_sha256_free(&ctx);
-  for (int i = 0; i < 32; i++) {
-    sprintf(hex + i * 2, "%02x", sum[i]);
-  }
+  toHex(sum, hex);
   return true;
 }
 

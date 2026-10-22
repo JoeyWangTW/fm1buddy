@@ -19,14 +19,18 @@ struct Fm1Id {
   bool ota() const;
 };
 
-// a .fwsc on the SD card
+// a .fwsc, read from the SD card into memory once (and checked), so the install never waits on the card
 struct Pkg {
-  FILE* f = 0;
-  uint32_t size = 0;      // of the logical image
+  uint8_t* image = 0;     // the logical image
+  uint32_t size = 0;      // its size
+  uint32_t fileSize = 0;  // the .fwsc's
   char product[24] = "";  // "FM-1_904"
-  bool open(const char* path);
+  char sha256[65] = "";   // the .fwsc's
+  char path[160] = "";
+  // 0, or what's wrong with it
+  const char* open(const char* path);
   void close();
-  bool read(uint32_t addr, uint8_t* out, uint32_t len);
+  bool read(uint32_t addr, uint8_t* out, uint32_t len) const;
   bool fits(const Fm1Id& id) const;  // for this device's model ("FM-1_904" on "FM-1_15")
   ~Pkg() { close(); }
 };
@@ -42,8 +46,9 @@ typedef void (*Fm1Progress)(Fm1Step step, uint32_t served, uint32_t addr);
 
 namespace fm1 {
 // a full install: running firmware -> loader -> new firmware; or, with the FM-1 already in update mode (the loader),
-// the rest of one. Blocks (a job's thread). Returns an error, or 0
-const char* install(Pkg& pkg, Fm1Progress cb);
+// the rest of one. Blocks (a job's thread). Returns an error, or 0. With rec, everything that went between the FM-1
+// and us is written to it (each request, anything odd), to see what happened when one goes wrong
+const char* install(const Pkg& pkg, Fm1Progress cb, FILE* rec = 0);
 // call often (not while installing): asks each device that may be an FM-1 who it is, once it has settled
 void watch();
 // what device d said it is (an FM-1, or its loader), or 0
@@ -54,4 +59,5 @@ extern std::atomic<bool> busy;  // installing
 // the package being installed (for the simulator's pretend FM-1)
 extern std::atomic<uint32_t> imageSize;
 extern char imageProduct[24];
+extern char imagePath[160];
 }  // namespace fm1

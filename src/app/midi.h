@@ -16,11 +16,12 @@ struct Dev {
   bool on;
   uint16_t vid, pid;
   char name[32];
-  uint32_t serial;   // new on every mount: a new device in the same slot is noticed
-  uint32_t lastIn;   // when it last sent something (ms)
-  uint8_t last[3];   // the last channel message it sent
-  uint32_t count;    // messages it sent
-  uint32_t dropped;  // messages to it that didn't fit its queue (it doesn't take them fast enough)
+  uint32_t serial;     // new on every mount: a new device in the same slot is noticed
+  uint32_t lastIn;     // when it last sent something (ms)
+  uint8_t last[3];     // the last channel message it sent
+  uint32_t count;      // messages it sent
+  uint32_t dropped;    // messages to it that didn't fit its queue (it doesn't take them fast enough)
+  uint32_t sysexLost;  // SysEx from it that didn't fit (too long, or not read fast enough)
 };
 
 extern std::atomic<bool> thru;     // everything to everything
@@ -42,8 +43,10 @@ void bytesIn(int d, const uint8_t* bytes, uint32_t n);
 
 // anywhere
 void send(int d, const uint8_t* bytes, uint32_t n);  // MIDI bytes to device d
-uint32_t sysex(int d, uint8_t* out);                 // the next complete SysEx (F0..F7) it sent, or 0
-void drain(int d);                                   // forget the SysEx it sent
+// the same, all or nothing: waits up to ms for room in its queue. False if it went, or there wasn't room
+bool sendWait(int d, const uint8_t* bytes, uint32_t n, uint32_t ms);
+uint32_t sysex(int d, uint8_t* out);  // the next complete SysEx (F0..F7) it sent, or 0
+void drain(int d);                    // forget the SysEx it sent
 
 // "note 60 ch 1", "cc 10 = 64 ch 2", ...
 void describe(const uint8_t m[3], char* out, int n);

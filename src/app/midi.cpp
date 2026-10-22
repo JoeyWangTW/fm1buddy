@@ -3,7 +3,9 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <chrono>
 #include <mutex>
+#include <thread>
 
 #include "hal.h"
 
@@ -95,6 +97,7 @@ static void sysexByte(Slot& s, uint8_t b) {
     s.cur[s.curN++] = b;
   } else {
     s.curOn = false;  // too long to keep
+    s.d.sysexLost++;
     return;
   }
   if (b == 0xF7) {
@@ -103,6 +106,8 @@ static void sysexByte(Slot& s, uint8_t b) {
       memcpy(s.q[s.qw % SYSEX_Q], s.cur, s.curN);
       s.qn[s.qw % SYSEX_Q] = s.curN;
       s.qw++;
+    } else {
+      s.d.sysexLost++;
     }
   }
 }
@@ -252,6 +257,31 @@ void midi::send(int d, const uint8_t* bytes, uint32_t n) {
   }
   for (uint32_t i = 0; i < n; i++) {
     streamByte(s.enc, bytes[i], [&](const uint8_t* p) { push(s, p); });
+  }
+}
+
+bool midi::sendWait(int d, const uint8_t* bytes, uint32_t n, uint32_t ms) {
+  if (d < 0 || d >= MIDI_DEVS) {
+    return false;
+  }
+  uint32_t need = n / 3 + 2;  // packets, at most
+  for (uint32_t start = hal::millis();; std::this_thread::sleep_for(std::chrono::milliseconds(1))) {
+    {
+      std::lock_guard<std::mutex> g(lock);
+      Slot& s = slots[d];
+      if (!s.d.on || need > OUT_N) {
+        return false;
+      }
+      if (OUT_N - (s.ow - s.orr) >= need) {
+        for (uint32_t i = 0; i < n; i++) {
+          streamByte(s.enc, bytes[i], [&](const uint8_t* p) { push(s, p); });
+        }
+        return true;
+      }
+    }
+    if (hal::millis() - start >= ms) {
+      return false;
+    }
   }
 }
 
