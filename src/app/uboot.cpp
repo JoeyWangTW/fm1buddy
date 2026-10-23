@@ -19,6 +19,8 @@
 #define JUMP 0xFB08
 // the loader's
 #define READ_FLASH 0xFD05
+#define WRITE_FLASH 0xFB04
+#define ERASE_SECTOR 0xFB01
 #define READ_KEY 0xFC09
 #define GET_ONLINE_DEVICE 0xFC0A
 #define RUN_APP 0xFC0C
@@ -82,14 +84,7 @@ bool uboot::haveLoader() {
 }
 
 const char* uboot::enter(int d, Chip& chip) {
-  // the loader, from the SD card
-  std::vector<uint8_t> loader(LOADER_SIZE);
-  FILE* f = haveLoader() ? fopen(catalog::path(UBOOT_LOADER).c_str(), "rb") : 0;
-  bool got = f && fread(loader.data(), 1, LOADER_SIZE, f) == LOADER_SIZE;
-  if (f) {
-    fclose(f);
-  }
-  if (!got) {
+  if (!haveLoader()) {
     return "JieLi's loader isn't on the SD card.";
   }
   // alone on the hub: the FM-1 doesn't take the key with another full-speed device there
@@ -112,6 +107,25 @@ const char* uboot::enter(int d, Chip& chip) {
   while (!hal::storageThere(VID, PID)) {
     if (hal::millis() - start > 10000) {
       return "It didn't go into its boot loader (is it running stock V15, or a firmware like fomajam?).";
+    }
+    wait(50);
+  }
+  return attach(chip);
+}
+
+const char* uboot::attach(Chip& chip) {
+  std::vector<uint8_t> loader(LOADER_SIZE);
+  FILE* f = haveLoader() ? fopen(catalog::path(UBOOT_LOADER).c_str(), "rb") : 0;
+  bool got = f && fread(loader.data(), 1, LOADER_SIZE, f) == LOADER_SIZE;
+  if (f) {
+    fclose(f);
+  }
+  if (!got) {
+    return "JieLi's loader isn't on the SD card.";
+  }
+  for (uint32_t start = hal::millis(); !hal::storageThere(VID, PID);) {
+    if (hal::millis() - start > 10000) {
+      return "Its boot loader didn't show up on USB.";
     }
     wait(50);
   }
@@ -197,6 +211,55 @@ const char* uboot::read(const Chip& chip, std::vector<uint8_t>& out, void (*prog
   }
   if (progress) {
     progress(chip.size, chip.size);
+  }
+  return 0;
+}
+
+void uboot::keepAlive() {
+  uint8_t resp[16];
+  exec(GET_ONLINE_DEVICE, 0, 0, resp, 2, 1000);
+}
+
+const char* uboot::writeSector(uint32_t addr, const uint8_t* data) {
+  if (addr < WRITE_FROM || addr >= WRITE_TO || addr % SECTOR) {
+    hal::log("uboot: a write to %06X refused", (unsigned)addr);
+    return "That isn't somewhere it writes.";  // (never: the job only asks for these)
+  }
+  uint8_t args[9], cdb[16], resp[16], back[IO];
+  be32(args, addr);
+  if (!exec(ERASE_SECTOR, args, 4, resp, 3, 5000)) {
+    return "It didn't erase.";
+  }
+  for (uint32_t off = 0; off < SECTOR; off += IO) {
+    be32(args, addr + off);
+    args[4] = IO >> 8, args[5] = IO & 0xFF, args[6] = 0;
+    uint16_t c = crc16(data + off, IO, 0);
+    args[7] = c & 0xFF, args[8] = c >> 8;
+    cdbOf(cdb, WRITE_FLASH, args, sizeof args);
+    bool ok = false;
+    for (int t = 0; t < 3 && !ok; t++) {  // (the same bytes again: NOR flash only clears bits, so it's the same)
+      ok = hal::storageCommand(cdb, 16, false, (uint8_t*)data + off, IO, 0, 2000);
+    }
+    if (!ok) {
+      return "It didn't take what was written.";
+    }
+  }
+  for (uint32_t off = 0; off < SECTOR; off += IO) {
+    be32(args, addr + off);
+    args[4] = IO >> 8, args[5] = IO & 0xFF;
+    cdbOf(cdb, READ_FLASH, args, 6);
+    bool ok = false;
+    for (int t = 0; t < 3 && !ok; t++) {
+      uint32_t got = 0;
+      ok = hal::storageCommand(cdb, 16, true, back, IO, &got, 2000) && got == IO;
+    }
+    if (!ok) {
+      return "It stopped answering.";
+    }
+    if (memcmp(back, data + off, IO)) {
+      hal::log("uboot: %06X reads back differently", (unsigned)(addr + off));
+      return "It read back differently.";
+    }
   }
   return 0;
 }

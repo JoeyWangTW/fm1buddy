@@ -32,6 +32,9 @@ struct Pkg {
   void close();
   bool read(uint32_t addr, uint8_t* out, uint32_t len) const;
   bool fits(const Fm1Id& id) const;  // for this device's model ("FM-1_904" on "FM-1_15")
+  // its flash.bin (the image as it is in the flash, from 0), in image: where and how big; false if it has none, or it
+  // doesn't match its CRC
+  bool flash(uint32_t& at, uint32_t& n) const;
   ~Pkg() { close(); }
 };
 

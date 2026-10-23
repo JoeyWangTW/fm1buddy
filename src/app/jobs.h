@@ -23,7 +23,9 @@ enum Kind { NONE,
             KEEP,      // what a firmware shares (fomajam's song) into a new setup
             RESTORE,   // a setup back to it
             EXPORT,    // a setup's patterns as MIDI files, its kits as .wav files
-            BACKUP };  // all of the FM-1's flash to the SD card (through its boot loader: uboot.h)
+            BACKUP,    // all of the FM-1's flash to the SD card (through its boot loader: uboot.h)
+            PREPARE,   // recovery: JieLi's loader on the SD card, then the board restarts into recovery mode
+            RECOVER }; // recovery mode: a firmware or a backup onto the FM-1, through its boot loader
 enum Step { IDLE,
             JOINING,
             FETCHING,
@@ -40,7 +42,12 @@ enum Step { IDLE,
             WRITING_FILES,  // EXPORT
             BOOT_LOADER,    // BACKUP: the FM-1 into its boot loader
             READING_FLASH,  // BACKUP: its flash (done, total), twice
-            LEAVING };      // BACKUP: back to its firmware
+            LEAVING,        // BACKUP: back to its firmware
+            GETTING_READY,  // RECOVER: what goes on it, from the SD card
+            KEYING,         // RECOVER: the key (hal.h keyState says how far)
+            SAVING,         // RECOVER: its flash as it was, to the SD card
+            WRITING_FLASH,  // RECOVER: the sectors that differ (done, total)
+            CHECKING_FLASH };  // RECOVER: all of it read again
 
 extern std::atomic<int> kind, step;
 extern std::atomic<bool> running;
@@ -54,7 +61,8 @@ extern std::vector<Firmware> hub;  // HUB: the new list
 extern std::string hubUpdated;
 extern int device;             // PROBE, SEND, VOICE, KEEP, RESTORE: the device
 extern sounds::Speaks speaks;  // PROBE
-extern std::string saved;      // VOICE: the file it went into; KEEP: the setup; EXPORT: what it did; BACKUP: its file
+extern std::string saved;      // VOICE: the file it went into; KEEP: the setup; EXPORT: what it did; BACKUP, RECOVER: its
+                               // backup's file
 
 bool hubList(bool asked = true);  // asked: the user did (else it's automatic, and doesn't pause Bluetooth MIDI)
 // a job the user asked for needed Wi-Fi, so Bluetooth MIDI paused (once, for a message)
@@ -70,6 +78,11 @@ bool keep(int d);
 bool restore(int d, const std::string& setup);  // in /setups
 bool exportSetup(const std::string& setup, const char* app);
 bool backup(int d);  // device d: the FM-1
+// recovery: what goes on the FM-1 (a .fwsc in /fm1, or a backup's .bin in /backups) is kept, JieLi's loader is
+// downloaded if it isn't there, and the board restarts into recovery mode
+bool prepare(const std::string& from);
+std::string recovering();  // what's going on it ("" if nothing)
+bool recover();            // in recovery mode: put it on
 // "Joining Wi-Fi", "Downloading 40%", "Writing 12%", ...
 std::string status();
 }  // namespace jobs

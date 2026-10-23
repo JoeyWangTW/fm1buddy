@@ -4,8 +4,11 @@
 // firmware again. With JieLi's loader in its RAM (wl82loader.bin, from jl-uboot-tool: downloaded once, to the SD
 // card) it reads the whole flash: the firmware, and what the firmwares keep (settings, projects, samples, voices).
 //
+// An FM-1 whose firmware doesn't start gets there by the key its chip listens for when it's switched on (hal.h
+// recoveryMode), and then has a firmware or a backup written back (recovery: writeSector); backups only read.
+//
 // The protocol is as FM-1-transporter (kurogedelic, MIT) and jl-uboot-tool (kagaimiq, MIT) speak it: their
-// docs/PROTOCOL.md says how. Only reading here: nothing on the FM-1 is written.
+// docs/PROTOCOL.md says how.
 #pragma once
 
 #include <stdint.h>
@@ -33,8 +36,22 @@ struct Chip {
 };
 // device d (an FM-1, alone on the hub) into its boot loader, and the loader running in it; 0 or an error
 const char* enter(int d, Chip& chip);
+// the same with the FM-1 already in its boot loader (recovery: hal.h keyState), or on its way there
+const char* attach(Chip& chip);
 // the whole flash; 0 or an error
 const char* read(const Chip& chip, std::vector<uint8_t>& out, void (*progress)(uint32_t done, uint32_t total));
+// the loader restarts the chip after about 3 s without a command: one to keep it (while the SD card is slow)
+void keepAlive();
+
+// Writing (recovery only): whole 4 KiB sectors, only in [WRITE_FROM, WRITE_TO). Below is the flash's head (its header,
+// the SPL, isd_config: what the chip starts from), above is key_mac; no firmware install writes either
+#define SECTOR 0x1000u
+#define WRITE_FROM 0x4000u
+#define WRITE_TO 0xFF000u
+#define FM1_KEY 0x980F
+#define FM1_FLASH 0x856014u
+// one sector: erased, written, and read back; 0 or an error
+const char* writeSector(uint32_t addr, const uint8_t* data);
 // back to its firmware (it restarts)
 void leave();
 // it's still in its boot loader (after leave(): only switching it off and on gets it out)

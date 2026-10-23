@@ -16,10 +16,13 @@
 #include "board.h"
 #include "hal.h"
 
-static bool sdOk, logToSd, computer, disk;
+static bool sdOk, logToSd, computer, disk, recovery;
 // USB disk mode (hal.h): set, then a restart. Kept across that restart only (a power cycle starts as ever)
 #define DISK_MODE 0x4449534B
 static RTC_NOINIT_ATTR uint32_t diskFlag;
+// recovery mode (hal.h), the same way
+#define RECOVERY_MODE 0x52435652
+static RTC_NOINIT_ATTR uint32_t recoveryFlag;
 // the console's "host": the next start is the USB host even with a computer on it, for a while (testing)
 #define HOST_TEST 0x484F5354
 static RTC_NOINIT_ATTR uint32_t hostTest;
@@ -112,6 +115,17 @@ void board::begin() {
     hal::log("fm1buddy: USB disk mode (%u MB)", (unsigned)((uint64_t)SD_MMC.numSectors() * SD_MMC.sectorSize() >> 20));
     return;
   }
+  recovery = recoveryFlag == RECOVERY_MODE && sdOk;
+  recoveryFlag = 0;
+  if (recovery) {  // the FM-1 is on the port (not a computer): its USB lines are the key's (key_s3.cpp)
+    mkdir("/sdcard/fm1buddy", 0777);
+    if (FILE* f = fopen(LOG_FILE, "w")) {
+      fclose(f);
+      logToSd = true;
+    }
+    hal::log("fm1buddy: recovery mode, last reset: %d", (int)esp_reset_reason());
+    return;
+  }
   // a computer on the USB-C port (it sends start-of-frames): stay its serial port. Else: the USB host
   // (board::usbBegin), and the log goes to the SD card
   bool test = hostTest == HOST_TEST;
@@ -152,7 +166,9 @@ void board::usbBegin() {
   esp_register_shutdown_handler(phyToSerial);
   hal::log("usb: serial off");
   Serial.end();
-  usbHostBegin();
+  if (!recovery) {
+    usbHostBegin();  // (in recovery mode: once the key has worked, keyStart)
+  }
 }
 
 void board::loop() {
@@ -191,6 +207,17 @@ const char* hal::sd() {
 
 bool hal::diskMode() {
   return disk;
+}
+
+bool hal::recoveryMode() {
+  return recovery;
+}
+
+void hal::recoveryModeSet(bool on) {
+  recoveryFlag = on ? RECOVERY_MODE : 0;
+  hal::log("usb: %s recovery mode: restarting", on ? "into" : "out of");
+  flushLog();
+  esp_restart();
 }
 
 void hal::diskModeSet(bool on) {

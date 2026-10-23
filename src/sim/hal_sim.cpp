@@ -9,6 +9,7 @@
 #include <sys/mount.h>
 #include <sys/stat.h>
 
+#include <atomic>
 #include <chrono>
 #include <string>
 #include <thread>
@@ -53,6 +54,47 @@ void hal::diskModeSet(bool on) {
 int hal::diskState() {
   return diskEjected ? DISK_EJECTED : disk && hal::millis() - diskAt > 1000 ? DISK_MOUNTED
                                                                             : DISK_WAITING;
+}
+
+// recovery mode, pretended: no restart; the pretend FM-1 is switched on 2 s after the key starts, and takes it
+static bool recovery;
+static uint32_t keyAt;
+
+bool hal::recoveryMode() {
+  return recovery;
+}
+
+void hal::recoveryModeSet(bool on) {
+  hal::log("usb: %s recovery mode (a restart, on the board)", on ? "into" : "out of");
+  recovery = on;
+  keyAt = 0;
+}
+
+void hal::keyStart() {
+  if (recovery && !keyAt) {
+    keyAt = hal::millis();
+    hal::log("key: sending: switch the FM-1 on");
+  }
+}
+
+int hal::keyState() {
+  static std::atomic<bool> host{false};
+  if (!recovery || !keyAt) {
+    host = false;
+    return KEY_IDLE;
+  }
+  uint32_t t = hal::millis() - keyAt;
+  if (t < 2000) {
+    host = false;
+    return KEY_SENDING;
+  }
+  if (t < 3500) {
+    return KEY_ANSWERED;
+  }
+  if (!host.exchange(true)) {
+    fake::keyed();
+  }
+  return KEY_HOST;
 }
 
 void simDiskEject() {
