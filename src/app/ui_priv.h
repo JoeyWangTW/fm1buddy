@@ -63,4 +63,6 @@ void wifiPage(lv_obj_t* page);
 void backupPage(lv_obj_t* page);     // all of the FM-1's flash to the SD card
 void diskStartPage(lv_obj_t* page);  // USB disk: what it is, and starting it
 void diskPage(lv_obj_t* page);       // USB disk mode itself (all of the screen)
+void recoverStartPage(lv_obj_t* page);  // recovery: what goes on the FM-1, how, and starting it
+void recoverPage(lv_obj_t* page);       // recovery mode itself (all of the screen)
 }  // namespace ui

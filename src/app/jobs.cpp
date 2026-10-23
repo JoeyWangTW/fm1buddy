@@ -41,7 +41,7 @@ static void progress(uint32_t d, uint32_t t) {
   total = t;
 }
 
-static const char* NAMES[] = {"none", "hub", "download", "scan", "join", "install", "probe", "send", "voice", "keep", "restore", "export", "backup"};
+static const char* NAMES[] = {"none", "hub", "download", "scan", "join", "install", "probe", "send", "voice", "keep", "restore", "export", "backup", "prepare", "recover"};
 
 static bool start(Kind k, void (*fn)(void*)) {
   if (running) {
@@ -365,25 +365,74 @@ static void restoreJob(void*) {
 // ------------------------------------------------------------------------------------------ backup ---
 static int reading;  // BACKUP: which reading of its flash (it's read twice, and they must be the same)
 
+// JieLi's loader: once, from jl-uboot-tool
+static bool getLoader() {
+  if (uboot::haveLoader()) {
+    return true;
+  }
+  if (!joinSaved()) {
+    return false;
+  }
+  step = FETCHING;
+  int code = hal::get(UBOOT_LOADER_URL, catalog::path(UBOOT_LOADER).c_str(), 0, progress, error);
+  if (code != 200 || !uboot::haveLoader()) {
+    remove(catalog::path(UBOOT_LOADER).c_str());
+    if (code == 200 || error.empty()) {
+      error = "JieLi's loader didn't download as it should.";
+    }
+    return false;
+  }
+  return true;
+}
+
+// a flash as backups/fm1-N.bin (its name into saved), and what it was (fm1-N.txt). With alive: the loader is still
+// running, and kept so (the card can take longer than it waits)
+static bool saveBackup(const std::vector<uint8_t>& a, const uboot::Chip& chip, const std::string& was, bool alive) {
+  std::string dir = catalog::path(BACKUPS_DIR);
+  mkdir(dir.c_str(), 0777);
+  struct stat st;
+  int n = 1;
+  while (n < 1000 && !stat((dir + "/fm1-" + std::to_string(n) + ".bin").c_str(), &st)) {
+    n++;
+  }
+  saved = "fm1-" + std::to_string(n) + ".bin";
+  char sha[65] = "";
+  hal::sha256(a.data(), a.size(), sha);
+  FILE* f = fopen((dir + "/" + saved).c_str(), "wb");
+  bool ok = f;
+  for (size_t at = 0; ok && at < a.size(); at += 32768) {
+    size_t k = std::min<size_t>(32768, a.size() - at);
+    ok = fwrite(a.data() + at, 1, k, f) == k;
+    if (alive) {
+      uboot::keepAlive();
+    }
+  }
+  ok &= f && !fclose(f);
+  if (alive) {
+    uboot::keepAlive();
+  }
+  if (ok) {
+    f = fopen((dir + "/fm1-" + std::to_string(n) + ".txt").c_str(), "w");
+    ok = f && fprintf(f,
+                      "fm1buddy backup: all of the FM-1's flash, through its boot loader\n"
+                      "firmware %s\nchip key %04X\nflash    %06X, %u bytes\nsha256   %s\n",
+                      was.empty() ? "?" : was.c_str(), chip.key, (unsigned)chip.flashId, (unsigned)chip.size, sha) > 0;
+    ok &= f && !fclose(f);
+  }
+  if (!ok) {
+    error = "Can't write it to the SD card.";
+  }
+  return ok;
+}
+
 static void backupJob(void*) {
   if (!hal::sd()) {
     error = "No SD card: the backup goes on it.";
     return finish(false);
   }
   mkdirs();
-  if (!uboot::haveLoader()) {  // JieLi's loader: once, from jl-uboot-tool
-    if (!joinSaved()) {
-      return finish(false);
-    }
-    step = FETCHING;
-    int code = hal::get(UBOOT_LOADER_URL, catalog::path(UBOOT_LOADER).c_str(), 0, progress, error);
-    if (code != 200 || !uboot::haveLoader()) {
-      remove(catalog::path(UBOOT_LOADER).c_str());
-      if (code == 200 || error.empty()) {
-        error = "JieLi's loader didn't download as it should.";
-      }
-      return finish(false);
-    }
+  if (!getLoader()) {
+    return finish(false);
   }
   const Fm1Id* id = fm1::known(device);
   std::string was = id ? id->text : "";
@@ -414,32 +463,7 @@ static void backupJob(void*) {
     error = std::string(e) + (uboot::stuck() ? " Switch the FM-1 off and on to get it back." : "");
     return finish(false);
   }
-  // backups/fm1-N.bin, and what it was (fm1-N.txt)
-  std::string dir = catalog::path(BACKUPS_DIR);
-  mkdir(dir.c_str(), 0777);
-  struct stat st;
-  int n = 1;
-  while (n < 1000 && !stat((dir + "/fm1-" + std::to_string(n) + ".bin").c_str(), &st)) {
-    n++;
-  }
-  saved = "fm1-" + std::to_string(n) + ".bin";
-  char sha[65] = "";
-  hal::sha256(a.data(), a.size(), sha);
-  FILE* f = fopen((dir + "/" + saved).c_str(), "wb");
-  bool ok = f && fwrite(a.data(), 1, a.size(), f) == a.size();
-  ok &= f && !fclose(f);
-  if (ok) {
-    f = fopen((dir + "/fm1-" + std::to_string(n) + ".txt").c_str(), "w");
-    ok = f && fprintf(f,
-                      "fm1buddy backup: all of the FM-1's flash, through its boot loader\n"
-                      "firmware %s\nchip key %04X\nflash    %06X, %u bytes\nsha256   %s\n",
-                      was.empty() ? "?" : was.c_str(), chip.key, (unsigned)chip.flashId, (unsigned)chip.size, sha) > 0;
-    ok &= f && !fclose(f);
-  }
-  if (!ok) {
-    error = "Can't write it to the SD card.";
-  }
-  finish(ok);
+  finish(saveBackup(a, chip, was, false));
 }
 
 bool jobs::backup(int d) {
@@ -449,6 +473,167 @@ bool jobs::backup(int d) {
   device = d;
   reading = 0;
   return start(BACKUP, backupJob);
+}
+
+// ---------------------------------------------------------------------------------------- recovery ---
+#define RECOVER_KEY "recover"
+static char recoverFrom[160];  // what goes on it: "/fm1/x.fwsc" or "/backups/fm1-3.bin", kept across the restart
+
+static bool isBackup(const std::string& p) {
+  return p.size() > 4 && !strcasecmp(p.c_str() + p.size() - 4, ".bin");
+}
+
+static void prepareJob(void*) {
+  if (!hal::sd()) {
+    error = "No SD card.";
+    return finish(false);
+  }
+  mkdirs();
+  if (!getLoader()) {
+    return finish(false);
+  }
+  hal::save(RECOVER_KEY, recoverFrom, sizeof recoverFrom);
+  finish(true);
+  hal::recoveryModeSet(true);  // (the board restarts)
+}
+
+bool jobs::prepare(const std::string& from) {
+  if (running || from.size() >= sizeof recoverFrom) {
+    return false;
+  }
+  snprintf(recoverFrom, sizeof recoverFrom, "%s", from.c_str());
+  return start(PREPARE, prepareJob);
+}
+
+std::string jobs::recovering() {
+  if (!recoverFrom[0] && !hal::load(RECOVER_KEY, recoverFrom, sizeof recoverFrom)) {
+    recoverFrom[0] = 0;
+  }
+  return recoverFrom;
+}
+
+// what goes on it, as the flash would be from 0 (its first WRITE_FROM bytes aren't written): 0 or an error
+static const char* image(const std::string& from, std::vector<uint8_t>& out) {
+  std::string p = catalog::path(from);
+  if (isBackup(from)) {
+    FILE* f = fopen(p.c_str(), "rb");
+    if (!f) {
+      return "Can't open the backup on the SD card.";
+    }
+    out.resize(1024 * 1024);
+    size_t n = fread(out.data(), 1, out.size(), f);
+    int more = fgetc(f);
+    fclose(f);
+    if (n != out.size() || more != EOF) {
+      return "That backup isn't all of an FM-1's flash (1 MB).";
+    }
+    out.resize(WRITE_TO);  // (its key_mac stays as the FM-1 has it)
+    return 0;
+  }
+  Pkg pkg;
+  if (const char* e = pkg.open(p.c_str())) {
+    return e;
+  }
+  uint32_t at, n;
+  if (!pkg.flash(at, n)) {
+    return "That package has no flash image in it (or it's damaged).";
+  }
+  if (strncmp(pkg.product, "FM-1_", 5)) {
+    return "That package isn't for the FM-1.";
+  }
+  if (n <= WRITE_FROM || n > WRITE_TO) {
+    return "Its flash image is a size the FM-1's isn't.";
+  }
+  out.assign(pkg.image + at, pkg.image + at + n);
+  return 0;
+}
+
+static void recoverJob(void*) {
+  std::string from = recovering();
+  std::vector<uint8_t> want, now, back;
+  step = GETTING_READY;
+  const char* e = !hal::sd() ? "No SD card." : from.empty() ? "Nothing was chosen to go on it." : image(from, want);
+  if (e) {
+    error = e;
+    return finish(false);
+  }
+  hal::log("recover: %s, %u bytes", from.c_str(), (unsigned)want.size());
+  step = KEYING;
+  hal::keyStart();
+  while (hal::keyState() != hal::KEY_HOST) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+  step = BOOT_LOADER;
+  uboot::Chip chip;
+  e = uboot::attach(chip);
+  if (!e && (chip.key != FM1_KEY || chip.flashId != FM1_FLASH || chip.size < WRITE_TO)) {
+    e = "That isn't the FM-1's chip: nothing was written.";
+  }
+  if (!e) {
+    step = READING_FLASH;
+    reading = 1;
+    e = uboot::read(chip, now, progress);
+  }
+  // the flash as it was, first: whatever happens next, it's on the SD card
+  if (!e) {
+    step = SAVING;
+    e = saveBackup(now, chip, "before recovery", true) ? 0 : error.c_str();
+  }
+  std::vector<uint32_t> sectors;
+  std::vector<uint8_t> expect = now;
+  if (!e) {
+    std::copy(want.begin() + WRITE_FROM, want.end(), expect.begin() + WRITE_FROM);
+    for (uint32_t a = WRITE_FROM; a < want.size(); a += SECTOR) {
+      if (memcmp(&expect[a], &now[a], SECTOR)) {
+        sectors.push_back(a);
+      }
+    }
+    hal::log("recover: %u sectors differ", (unsigned)sectors.size());
+    if (memcmp(want.data(), now.data(), WRITE_FROM)) {
+      hal::log("recover: its head differs from the image's (it isn't written)");
+    }
+    step = WRITING_FLASH;
+    total = sectors.size();
+    done = 0;
+    for (uint32_t a : sectors) {
+      for (int t = 0; t < 3; t++) {
+        e = uboot::writeSector(a, &expect[a]);
+        if (!e) {
+          break;
+        }
+        hal::log("recover: sector %06X: %s", (unsigned)a, e);
+      }
+      if (e) {
+        break;
+      }
+      done = done + 1;
+    }
+  }
+  if (!e) {
+    step = CHECKING_FLASH;
+    reading = 2;
+    e = uboot::read(chip, back, progress);
+    if (!e && back != expect) {
+      e = "It reads back differently from what was written.";
+    }
+  }
+  step = LEAVING;
+  uboot::leave();
+  if (e) {
+    error = std::string(e) + (sectors.empty() ? "" : " It may not start now: switch it off, and try again.");
+    return finish(false);
+  }
+  error = sectors.empty() ? "It already had that on it." : "";
+  hal::save(RECOVER_KEY, "", 1);  // (done: not again)
+  finish(true);
+}
+
+bool jobs::recover() {
+  if (running) {
+    return false;
+  }
+  reading = 0;
+  return start(RECOVER, recoverJob);
 }
 
 static std::string exportApp;
@@ -580,6 +765,28 @@ std::string jobs::status() {
     }
     case LEAVING:
       return "Back to its firmware...";
+    case GETTING_READY:
+      return "Getting it ready...";
+    case KEYING:
+      switch (hal::keyState()) {
+        case hal::KEY_OFF:
+          return "Something is on the USB port: switch the FM-1 off (and no hub).";
+        case hal::KEY_ANSWERED:
+          return "It answered! Its boot loader is starting...";
+        case hal::KEY_HOST:
+          return "Its boot loader is starting...";
+      }
+      return "Switch the FM-1 on now.";
+    case SAVING:
+      return "Saving its flash as it was...";
+    case WRITING_FLASH: {
+      uint32_t t = total, d = done;
+      return "Writing " + std::to_string(t ? (unsigned long long)d * 100 / t : 0) + "%: keep it plugged in and on";
+    }
+    case CHECKING_FLASH: {
+      uint32_t t = total, d = done;
+      return "Checking it " + std::to_string(t ? (unsigned long long)d * 100 / t : 0) + "%...";
+    }
     case GETTING: {
       uint32_t t = total, d = done;
       return (phase ? "Getting the kits " : "Getting the song ") + std::to_string(t ? (unsigned long long)d * 100 / t : 0) +

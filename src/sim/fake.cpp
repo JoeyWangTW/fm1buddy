@@ -430,6 +430,10 @@ static void ubootEnter() {
   }
 }
 
+void fake::keyed() {
+  ubootEnter();
+}
+
 // out of it: its firmware starts again (it's already gone from the hub as a MIDI device)
 static void ubootLeave() {
   ub.on = false;
@@ -479,6 +483,19 @@ bool fake::storage(const uint8_t* cdb, uint8_t cdbLen, bool in, uint8_t* buf, ui
       *got = len;
       return true;
     }
+    if (cmd == 0xFB04 && !in && ub.loaderRunning && addr + len <= ub.flash.size() && n == len) {  // WRITE_FLASH
+      if (ubCrc(buf, len, 0) != (cdb[9] | cdb[10] << 8)) {
+        hal::log("fake fm-1: loader: a write with a bad CRC");
+        return false;
+      }
+      if (addr < 0x4000 || addr >= 0xFF000) {
+        hal::log("fake fm-1: loader: WROTE ITS HEAD OR KEY_MAC at %06X", (unsigned)addr);
+      }
+      for (uint32_t i = 0; i < len; i++) {
+        ub.flash[addr + i] &= buf[i];  // (NOR flash: only clears bits; erasing sets them)
+      }
+      return true;
+    }
     return false;
   }
   memset(buf, 0, 16);
@@ -505,6 +522,10 @@ bool fake::storage(const uint8_t* cdb, uint8_t cdbLen, bool in, uint8_t* buf, ui
   }
   if (cmd == 0xFC0A) {  // GET_ONLINE_DEVICE: SPI NOR, 0x856014
     buf[2] = 3, buf[4] = 0x14, buf[5] = 0x60, buf[6] = 0x85;
+    return true;
+  }
+  if (cmd == 0xFB01 && addr % 0x1000 == 0 && addr < ub.flash.size()) {  // ERASE_SECTOR
+    memset(&ub.flash[addr], 0xFF, 0x1000);
     return true;
   }
   if (cmd == 0xFC0C) {  // RUN_APP: its firmware again

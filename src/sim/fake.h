@@ -14,4 +14,6 @@ void play();
 // its boot loader, as a USB storage device (hal.h storageThere, storageCommand)
 bool storageThere(uint16_t vid, uint16_t pid);
 bool storage(const uint8_t* cdb, uint8_t cdbLen, bool in, uint8_t* buf, uint32_t len, uint32_t* got);
+// recovery: it took the key as it was switched on (whatever its firmware): straight into its boot loader
+void keyed();
 }  // namespace fake

@@ -102,6 +102,51 @@ bool Pkg::fits(const Fm1Id& id) const {
   return strlen(id.model) == n && !strncmp(id.model, product, n);
 }
 
+// JieLi's ENC stream cipher (in place), and CRC-16/XMODEM: as fomajam's tools/fm1pkg_make.py makes packages
+static void enc(uint8_t* p, uint32_t n) {
+  uint16_t key = 0xFFFF;
+  for (uint32_t i = 0; i < n; i++) {
+    p[i] ^= key & 0xFF;
+    key = (uint16_t)(key << 1) ^ (key & 0x8000 ? 0x1021 : 0);
+  }
+}
+
+static uint16_t crc16(const uint8_t* p, uint32_t n) {
+  uint16_t c = 0;
+  while (n--) {
+    c ^= (uint16_t)*p++ << 8;
+    for (int b = 0; b < 8; b++) {
+      c = c & 0x8000 ? (uint16_t)((c << 1) ^ 0x1021) : (uint16_t)(c << 1);
+    }
+  }
+  return c;
+}
+
+// the image: a 64-byte header (its file count at 8), then a 80-byte entry for each file (type, index, CRC, -, offset,
+// size), each ciphered on its own
+bool Pkg::flash(uint32_t& at, uint32_t& n) const {
+  if (!image || size < 0x40) {
+    return false;
+  }
+  uint8_t h[0x40];
+  memcpy(h, image, sizeof h);
+  enc(h, sizeof h);
+  uint32_t count = h[8] | h[9] << 8;
+  for (uint32_t i = 0; i < count && i < 8 && 0x90 + i * 0x50 <= size; i++) {
+    uint8_t e[0x50];
+    memcpy(e, image + 0x40 + i * 0x50, sizeof e);
+    enc(e, sizeof e);
+    uint32_t type = e[0] | e[1] << 8, crc = e[4] | e[5] << 8;
+    uint32_t off = e[8] | e[9] << 8 | e[10] << 16 | (uint32_t)e[11] << 24;
+    uint32_t len = e[12] | e[13] << 8 | e[14] << 16 | (uint32_t)e[15] << 24;
+    if (type == 0 && off <= size && len <= size - off) {
+      at = off, n = len;
+      return crc16(image + off, len) == crc;
+    }
+  }
+  return false;
+}
+
 bool Pkg::read(uint32_t addr, uint8_t* out, uint32_t len) const {
   if (!image || addr > size || len > size - addr) {
     return false;

@@ -83,6 +83,20 @@ enum DiskState { DISK_WAITING,    // for a computer
                  DISK_EJECTED };  // the computer let it go: it's safe to stop
 int diskState();
 
+// Recovery: the FM-1 straight on the USB-C port (no hub), for one whose firmware doesn't start. A mode the board
+// restarts into, and out of (recoveryModeSet): the USB host doesn't start, nor Bluetooth. Then keyStart waits for the
+// FM-1 to be off, sends the key its chip listens for when it's switched on (JieLi's USB_KEY, on the USB lines
+// themselves), and once the chip's boot loader answers, starts the USB host for it (uboot.h)
+bool recoveryMode();
+void recoveryModeSet(bool on);
+void keyStart();  // once
+enum KeyState { KEY_IDLE,      // not started
+                KEY_OFF,       // waiting for the FM-1 to be off (something holds the USB lines)
+                KEY_SENDING,   // the key, again and again: switch it on
+                KEY_ANSWERED,  // it took the key: its boot loader is starting
+                KEY_HOST };    // the USB host is up, for its boot loader
+int keyState();
+
 // run fn on a thread of its own
 void spawn(void (*fn)(void*), void* arg);
 }  // namespace hal

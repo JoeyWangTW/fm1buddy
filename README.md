@@ -1,27 +1,20 @@
 # fm1buddy
 
-Switch the M-VAVE FM-1's firmware and play it from cheap USB and Bluetooth MIDI controllers, with no computer. It runs
-on a ready-made [Freenove ESP32-S3 2.8" touch screen](https://store.freenove.com/products/fnk0104?variant=45040270213318)
-(FNK0104B): firmwares from its SD card or the [FM-1 Firmware Hub](https://thefirmwarehub.com) over Wi-Fi, installed
-on the FM-1 through a USB hub, with up to 4 USB MIDI devices and Bluetooth MIDI playing each other. Sounds (.syx) go
-between the FM-1 and the SD card too, and so do
-[fomajam](https://github.com/konsumer/fomajam)'s songs and its kits (drum machines of your own, from folders of
-.wav files): keep one setup per song, and load it before you play. A setup's patterns also export as MIDI files, and its
-kits as .wav files, for other gear.
+All without a computer/phone/etc:
 
-It also backs up all of the FM-1's flash to its SD card (Settings, Back up the FM-1): the firmware, and what the
-firmwares keep on it. It sends the FM-1 into the boot loader in its chip and reads it there, as
-[FM-1-transporter](https://github.com/kurogedelic/FM-1-transporter) does (but over the USB cable, from stock V15 or a
-firmware like fomajam, with no wiring), with JieLi's loader from [jl-uboot-tool](https://github.com/kagaimiq/jl-uboot-tool)
-(downloaded the first time). It only reads: nothing on the FM-1 changes.
+- touchscreen
+- nice menus (same themes as [fomajam](https://github.com/konsumer/fomajam))
+- Switch the M-VAVE FM-1's firmware, on the fly (from the SD card, or the [FM-1 Firmware Hub](https://thefirmwarehub.com) and download over Wi-Fi, from [the firmware hub](https://thefirmwarehub.com/))
+- Play it from cheap USB-only (up to 4, on a hub) and Bluetooth MIDI devices, even if FM-1 firmware only supports USB MIDI
+- Backup flash/settings/presets/etc (from stock V15, or firmwares like fomajam)
+- Send/record sounds (.syx, like DX7 banks)
+- Sample-management for [fomajam](https://github.com/konsumer/fomajam) (folders of WAV to its sample-banks, and back)
+- Extra features that work with [fomajam](https://github.com/konsumer/fomajam), like load/save its song & sample-banks quickly (for swapping sets at a live show), and export them as MIDI/WAV
+- MIDI-routing: Bluetooth & USB devices pass notes, clock & controls to each other (Bluetooth MIDI and Wi-Fi take turns: they don't both fit)
+- Act as USB disk (to manage files on SD)
+- FM1 Recover: write a firmware or backup to an FM-1 that won't start, like [FM-1-transporter](https://github.com/kurogedelic/FM-1-transporter) with no wiring needed (when people say "use RP2040"). Not tested on a real FM-1 yet
 
-**MIDI routing** (on the MIDI tab, and on from power-up if you like) has the devices play each other, Bluetooth MIDI's
-too. Wi-Fi stays connected once it's joined; only Bluetooth MIDI can't run with it (they don't both fit), so one pauses
-while the other is on.
-
-To copy files to and from the SD card without taking it out, Settings has **USB disk**: fm1buddy restarts as a USB
-drive for a computer (plugged in instead of the hub), and nothing on it touches the card until you eject it on the
-computer and tap Done, which restarts it as it was.
+No soldering or assembly needed, just get a cheap [Freenove ESP32-S3 2.8"](https://store.freenove.com/products/fnk0104?variant=45040270213318) (FNK0104B.) It comes in other sizes too, but the firmware is made for this exact model (its screen, touch and SD pins). You might additionally need a USB power-splitter and/or a small USB hub, depending on what you are doing.
 
 **Install it, and how to set it up:** <https://konsumer.github.io/fm1buddy/>
 

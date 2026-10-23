@@ -410,17 +410,17 @@ void ui::begin() {
   settingsLoad();
   hal::backlight(settings.brightness);
   bool bt = false;
-  if (hal::load("bluetooth", &bt, 1) && bt) {
+  if (!hal::recoveryMode() && hal::load("bluetooth", &bt, 1) && bt) {
     hal::bleOn(true);
   }
   bool routing = false;  // MIDI routing from power-on (its own switch on the MIDI page)
   hal::load("routing", &routing, 1);
-  midi::route(routing && !hal::diskMode());
+  midi::route(routing && !hal::diskMode() && !hal::recoveryMode());
   std::string err;
   catalog::parseHub(catalog::hub, catalog::hubUpdated, err);
   catalog::scanSd();
   setTheme(lv_display_get_default());
   build();
-  go(hal::diskMode() ? diskPage : firmwarePage);
+  go(hal::diskMode() ? diskPage : hal::recoveryMode() ? recoverPage : firmwarePage);
   lv_timer_create(watch, 100, 0);
 }
