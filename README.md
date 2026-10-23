@@ -2,10 +2,10 @@
 
 All without a computer/phone/etc:
 
-- touchscreen
-- nice menus (same themes as [fomajam](https://github.com/konsumer/fomajam))
 - Switch the M-VAVE FM-1's firmware, on the fly (from the SD card, or the [FM-1 Firmware Hub](https://thefirmwarehub.com) and download over Wi-Fi, from [the firmware hub](https://thefirmwarehub.com/))
 - Play it from cheap USB-only (up to 4, on a hub) and Bluetooth MIDI devices, even if FM-1 firmware only supports USB MIDI
+- touchscreen
+- nice menus (same themes as [fomajam](https://github.com/konsumer/fomajam))
 - Backup flash/settings/presets/etc (from stock V15, or firmwares like fomajam)
 - Send/record sounds (.syx, like DX7 banks)
 - Sample-management for [fomajam](https://github.com/konsumer/fomajam) (folders of WAV to its sample-banks, and back)
