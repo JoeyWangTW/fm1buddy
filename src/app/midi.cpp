@@ -58,8 +58,8 @@ static void reset(Slot& s) {
 // ------------------------------------------------------------------------------------------ the host ---
 void midi::route(bool on) {
   routing = on;
-  if (on) {
-    hal::wifiOff();  // (and Bluetooth may run)
+  if (on && hal::bleIsOn()) {
+    hal::wifiOff();  // Bluetooth MIDI runs: Wi-Fi can't (they don't both fit)
   }
   hal::bleAllow(on);
   hal::log("midi: routing %s", on ? "on" : "off");

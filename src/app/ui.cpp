@@ -371,8 +371,8 @@ static void logCounts() {
 }
 
 static void watch(lv_timer_t*) {
-  if (jobs::routingStopped()) {
-    toast("MIDI routing is off: Wi-Fi is on.");
+  if (jobs::bluetoothPaused()) {
+    toast("Bluetooth MIDI is paused: Wi-Fi is on.");
   }
   if (seenFinished != jobs::finished) {  // (a quick one may start and end between two looks)
     seenFinished = jobs::finished;

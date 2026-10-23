@@ -1,6 +1,6 @@
-// MIDI: MIDI routing (on: everything any device plays goes to all the others, and Bluetooth MIDI runs; Wi-Fi is off
-// meanwhile), what is plugged into the hub, and Bluetooth MIDI (off until it's turned on here; then on after power-on
-// too, whenever routing is)
+// MIDI: MIDI routing (on: everything any device plays goes to all the others, Bluetooth MIDI's too), what is plugged
+// into the hub, and Bluetooth MIDI (off until it's turned on here; then on after power-on too, whenever routing is).
+// Bluetooth MIDI and Wi-Fi don't both fit: one pauses the other
 #include <stdio.h>
 
 #include "fm1.h"
@@ -54,8 +54,16 @@ static lv_obj_t* switchRow(lv_obj_t* body, const char* name, bool on, lv_event_c
   return r;
 }
 
+static void wifiOffTapped(lv_event_t*) {
+  hal::wifiOff();  // (Bluetooth MIDI runs again)
+  go(midiPage);
+}
+
 static void toggleBt(lv_event_t* e) {
   bool on = lv_obj_has_state((lv_obj_t*)lv_event_get_target(e), LV_STATE_CHECKED);
+  if (on && midi::routing) {
+    hal::wifiOff();  // (they don't both fit)
+  }
   hal::bleOn(on);
   hal::save("bluetooth", &on, 1);  // the same after power-on
   go(midiPage);
@@ -106,9 +114,8 @@ void ui::midiPage(lv_obj_t* page) {
   hal::load("routing", &atBoot, 1);
   switchRow(body, "     Start it on power-up", atBoot, toggleBoot, &lv_font_montserrat_14);
   lv_obj_t* about = label(body,
-                          midi::routing ? "Everything a device plays goes to the others (and Bluetooth MIDI runs). Wi-Fi is "
-                                          "off: refreshing the Hub list turns routing off."
-                                        : "Off: the devices don't hear each other, and Wi-Fi stays on once it's joined.",
+                          midi::routing ? "Everything a device plays goes to the others, Bluetooth MIDI's too."
+                                        : "Off: the devices don't hear each other.",
                           &lv_font_montserrat_12, midi::routing ? t.dim : t.knob[1]);
   lv_label_set_long_mode(about, LV_LABEL_LONG_WRAP);
   lv_obj_set_width(about, LV_PCT(100));
@@ -175,7 +182,14 @@ void ui::midiPage(lv_obj_t* page) {
   lv_obj_t* note = label(body, btAbout, &lv_font_montserrat_12, t.dim);
   lv_label_set_long_mode(note, LV_LABEL_LONG_WRAP);
   lv_obj_set_width(note, LV_PCT(100));
-  if (bt && midi::routing) {
+  if (bt && midi::routing && hal::wifiOn()) {  // paused: Wi-Fi is on
+    lv_obj_t* pr = box(body, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_column(pr, 8, 0);
+    lv_obj_set_flex_align(pr, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_t* pl = label(pr, "Paused while Wi-Fi is on.", &lv_font_montserrat_12, t.knob[1]);
+    lv_obj_set_flex_grow(pl, 1);
+    button(pr, LV_SYMBOL_WIFI " Wi-Fi off", wifiOffTapped);
+  } else if (bt && midi::routing) {
     hal::BlePeer peers[6];
     int np = hal::blePeers(peers, 6);
     for (int i = 0; i < np; i++) {

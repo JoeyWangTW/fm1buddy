@@ -67,25 +67,25 @@ static void finish(bool good) {
   finished++;
 }
 
-static std::atomic<bool> routingWent{false};
+static std::atomic<bool> btPaused{false};
 static bool hubAsked = true;
 
-bool jobs::routingStopped() {
-  return routingWent.exchange(false);
+bool jobs::bluetoothPaused() {
+  return btPaused.exchange(false);
 }
 
-// Wi-Fi for a job: it stays on once it's joined. MIDI routing goes off for it if the user asked (they can't both run);
-// an automatic job doesn't stop it
+// Wi-Fi for a job: it stays on once it's joined. Only Bluetooth MIDI can't run with it (they don't both fit): while it
+// runs (routing on, Bluetooth on), a job the user asked for pauses it (Wi-Fi does that itself), and an automatic job
+// doesn't run
 static bool wifiFor(bool asked) {
-  if (!midi::routing) {
+  if (!midi::routing || !hal::bleIsOn() || hal::wifiOn()) {
     return true;
   }
   if (!asked) {
-    error = "MIDI routing is on, so Wi-Fi is off.";
+    error = "Bluetooth MIDI is on, so Wi-Fi is off.";
     return false;
   }
-  midi::route(false);
-  routingWent = true;
+  btPaused = true;
   return true;
 }
 

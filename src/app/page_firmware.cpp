@@ -258,8 +258,9 @@ void ui::firmwarePage(lv_obj_t* page) {
   status = line(page, "", &lv_font_montserrat_12, t.dim);
   lv_obj_set_width(status, LV_PCT(100));
 
-  // the Hub's list, the first time it's looked at after power-on (not while MIDI routing is on: Wi-Fi is off then)
-  if (source == HUB && settings.hubAuto && !hubAsked && settings.ssid[0] && hal::sd() && !midi::routing) {
+  // the Hub's list, the first time it's looked at after power-on (not while Bluetooth MIDI runs: Wi-Fi would pause it)
+  if (source == HUB && settings.hubAuto && !hubAsked && settings.ssid[0] && hal::sd() &&
+      !(midi::routing && hal::bleIsOn())) {
     hubAsked = true;
     jobs::hubList(false);
   }

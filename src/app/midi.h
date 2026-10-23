@@ -26,8 +26,9 @@ struct Dev {
 };
 
 extern std::atomic<bool> thru;  // everything to everything (off for a moment: an install, a .syx sent)
-// MIDI routing: the devices play each other (and Bluetooth MIDI runs) while it's on; Wi-Fi is off meanwhile (they don't
-// both fit). Off: the devices are only listened to (installs, Sounds), and Wi-Fi may stay on
+// MIDI routing: the devices play each other (and Bluetooth MIDI runs, if it's on) while it's on. Off: the devices are
+// only listened to (installs, Sounds). Wi-Fi and Bluetooth MIDI don't both fit: with Bluetooth on, turning routing on
+// turns Wi-Fi off, and Wi-Fi coming on pauses Bluetooth
 extern std::atomic<bool> routing;
 void route(bool on);
 extern std::atomic<uint32_t> seq;  // goes up when a device comes or goes
