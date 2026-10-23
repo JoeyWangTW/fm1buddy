@@ -218,7 +218,8 @@ static void installJob(void*) {
     fprintf(rec, "size     %u (image %u)\n", (unsigned)pkg.fileSize, (unsigned)pkg.size);
     fprintf(rec, "product  %s\n", pkg.product);
     fprintf(rec, "sha256   %s\n", pkg.sha256);
-    fprintf(rec, "hub      %s\n\n", target.sha256.empty() ? "not on the Hub" : "the same as the Hub's");
+    fprintf(rec, "known    %s\n\n",
+            target.sha256.empty() ? "no (not on the Hub, nor one of M-VAVE's): not checked" : "yes: its sha256 checked");
     fflush(rec);
   }
   total = pkg.size;

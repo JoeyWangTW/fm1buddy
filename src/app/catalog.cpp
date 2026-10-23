@@ -3,6 +3,7 @@
 #include <ArduinoJson.h>
 #include <dirent.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
@@ -138,6 +139,9 @@ bool catalog::parseHub(std::vector<Firmware>& out, std::string& updated, std::st
     Firmware f;
     readEntry(stock, f);
     f.name = "M-VAVE stock";
+    if (f.product.size() > 5 && f.product.compare(0, 5, "FM-1_") == 0) {
+      f.name += " V" + std::to_string(atoi(f.product.c_str() + 5));  // "M-VAVE stock V15"
+    }
     f.author = "M-VAVE";
     f.what = "The firmware the FM-1 came with: put it back to how it was.";
     f.kinds = {"stock"};
@@ -178,6 +182,38 @@ std::string catalog::product(const char* p) {
   return s;
 }
 
+// M-VAVE's own releases, by their sha256: known on the SD card whatever they're called, and whatever the Hub lists
+static const struct {
+  const char* sha256;
+  const char* name;
+  bool open;  // M-VAVE Open (else the stock firmware)
+} OFFICIAL[] = {
+    {"db1642b2b6fa5c2cccb11ffd13878068bb28601678d3644049f99dc40e7edb8a", "M-VAVE stock V15", false},
+    {"d017fb65e70aca97ee29d944470c3515a74581df5c0576bf70de917c7b2b61d5", "M-VAVE stock V16", false},
+    {"7e7b6d260163cdf9d716f7fab44f19be600edeffcd390de74370b83c917fd0c6", "M-VAVE Open V14", true},
+};
+
+// each file's sha256, kept on the card by its name, size and time (so each is read once): "name size mtime sha256"
+#define SHA_CACHE DATA_DIR "/sd-sha256.txt"
+
+static std::string cachedSha(const std::string& full, const char* name, const struct stat& st,
+                             std::vector<std::string>& cache, bool& changed) {
+  char key[300];
+  snprintf(key, sizeof key, "%s %lu %lu ", name, (unsigned long)st.st_size, (unsigned long)st.st_mtime);
+  for (auto& line : cache) {
+    if (line.size() == strlen(key) + 64 && line.compare(0, strlen(key), key) == 0) {
+      return line.substr(strlen(key));
+    }
+  }
+  char hex[65];
+  if (!hal::sha256(full.c_str(), hex)) {
+    return "";
+  }
+  cache.push_back(std::string(key) + hex);
+  changed = true;
+  return hex;
+}
+
 static bool isPkg(const char* name) {
   size_t n = strlen(name);
   return name[0] != '.' && n > 5 && !strcasecmp(name + n - 5, ".fwsc");
@@ -193,30 +229,62 @@ void catalog::scanSd() {
   if (!d) {
     return;
   }
+  std::vector<std::string> cache, kept;
+  if (FILE* c = fopen(path(SHA_CACHE).c_str(), "r")) {
+    char line[400];
+    while (fgets(line, sizeof line, c)) {
+      line[strcspn(line, "\r\n")] = 0;
+      cache.push_back(line);
+    }
+    fclose(c);
+  }
+  bool changed = false;
   while (dirent* e = readdir(d)) {
     if (!isPkg(e->d_name)) {
       continue;
     }
     std::string full = dir + "/" + e->d_name;
+    struct stat st;
+    if (stat(full.c_str(), &st)) {
+      continue;
+    }
+    // what it is: by its sha256 (a Hub firmware, or one of M-VAVE's), not by its name
+    std::string sha = cachedSha(full, e->d_name, st, cache, changed);
+    kept.push_back(std::string(e->d_name) + " " + std::to_string((unsigned long)st.st_size) + " " +
+                   std::to_string((unsigned long)st.st_mtime) + " " + sha);
     Firmware f;
-    auto h = std::find_if(hub.begin(), hub.end(), [&](const Firmware& x) { return !strcasecmp(x.file.c_str(), e->d_name); });
+    auto h = std::find_if(hub.begin(), hub.end(), [&](const Firmware& x) { return !sha.empty() && !strcasecmp(x.sha256.c_str(), sha.c_str()); });
+    auto o = std::find_if(std::begin(OFFICIAL), std::end(OFFICIAL), [&](const auto& x) { return sha == x.sha256; });
     if (h != hub.end()) {
       h->onSd = true;
       f = *h;
       f.hub = true;
+    } else if (o != std::end(OFFICIAL)) {
+      f.name = o->name;
+      f.author = "M-VAVE";
+      f.what = o->open ? "M-VAVE's open firmware: a groovebox, with a web editor (open.m-vave.com)."
+                       : "The firmware the FM-1 came with: put it back to how it was.";
+      f.kinds = {o->open ? "groove" : "stock"};
+      f.stock = !o->open;
+      f.sha256 = sha;  // (the install checks it)
     } else {
       f.name = e->d_name;
       f.name.resize(f.name.size() - 5);
     }
     f.onSd = true;
     f.file = e->d_name;
-    struct stat st;
-    if (!stat(full.c_str(), &st)) {
-      f.size = st.st_size;
-    }
+    f.size = st.st_size;
     f.product = product(full.c_str());
     sd.push_back(f);
   }
   closedir(d);
+  if (changed || kept.size() != cache.size()) {  // (only the files that are there now)
+    if (FILE* c = fopen(path(SHA_CACHE).c_str(), "w")) {
+      for (auto& line : kept) {
+        fprintf(c, "%s\n", line.c_str());
+      }
+      fclose(c);
+    }
+  }
   std::sort(sd.begin(), sd.end(), [](const Firmware& a, const Firmware& b) { return strcasecmp(a.name.c_str(), b.name.c_str()) < 0; });
 }
