@@ -56,9 +56,9 @@ extern int device;             // PROBE, SEND, VOICE, KEEP, RESTORE: the device
 extern sounds::Speaks speaks;  // PROBE
 extern std::string saved;      // VOICE: the file it went into; KEEP: the setup; EXPORT: what it did; BACKUP: its file
 
-bool hubList(bool asked = true);  // asked: the user did (else it's automatic, and doesn't stop MIDI routing)
-// a job the user asked for needed Wi-Fi, so MIDI routing went off (once, for a message)
-bool routingStopped();
+bool hubList(bool asked = true);  // asked: the user did (else it's automatic, and doesn't pause Bluetooth MIDI)
+// a job the user asked for needed Wi-Fi, so Bluetooth MIDI paused (once, for a message)
+bool bluetoothPaused();
 bool download(const Firmware& f);
 bool scan();
 bool join(const char* ssid, const char* pass);
