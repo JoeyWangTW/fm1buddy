@@ -415,6 +415,6 @@ void ui::begin() {
   catalog::scanSd();
   setTheme(lv_display_get_default());
   build();
-  go(firmwarePage);
+  go(hal::diskMode() ? diskPage : firmwarePage);
   lv_timer_create(watch, 100, 0);
 }

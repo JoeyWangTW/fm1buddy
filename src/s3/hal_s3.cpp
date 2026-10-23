@@ -16,7 +16,10 @@
 #include "board.h"
 #include "hal.h"
 
-static bool sdOk, logToSd, computer;
+static bool sdOk, logToSd, computer, disk;
+// USB disk mode (hal.h): set, then a restart. Kept across that restart only (a power cycle starts as ever)
+#define DISK_MODE 0x4449534B
+static RTC_NOINIT_ATTR uint32_t diskFlag;
 // the console's "host": the next start is the USB host even with a computer on it, for a while (testing)
 #define HOST_TEST 0x484F5354
 static RTC_NOINIT_ATTR uint32_t hostTest;
@@ -103,6 +106,12 @@ void board::begin() {
   SD_MMC.setPins(SD_CLK, SD_CMD, SD_D0, SD_D1, SD_D2, SD_D3);
   sdOk = SD_MMC.begin("/sdcard", false);
   WiFi.mode(WIFI_OFF);
+  disk = diskFlag == DISK_MODE && sdOk;
+  diskFlag = 0;
+  if (disk) {  // the card is the computer's: nothing here touches it, no log on it
+    hal::log("fm1buddy: USB disk mode (%u MB)", (unsigned)((uint64_t)SD_MMC.numSectors() * SD_MMC.sectorSize() >> 20));
+    return;
+  }
   // a computer on the USB-C port (it sends start-of-frames): stay its serial port. Else: the USB host
   // (board::usbBegin), and the log goes to the SD card
   bool test = hostTest == HOST_TEST;
@@ -131,6 +140,12 @@ static void phyToSerial() {
 }
 
 void board::usbBegin() {
+  if (disk) {
+    esp_register_shutdown_handler(phyToSerial);
+    Serial.end();
+    diskBegin();
+    return;
+  }
   if (computer) {
     return;
   }
@@ -171,7 +186,18 @@ uint32_t hal::millis() {
 }
 
 const char* hal::sd() {
-  return sdOk ? "/sdcard" : 0;
+  return sdOk && !disk ? "/sdcard" : 0;
+}
+
+bool hal::diskMode() {
+  return disk;
+}
+
+void hal::diskModeSet(bool on) {
+  diskFlag = on ? DISK_MODE : 0;
+  hal::log("usb: %s USB disk mode: restarting", on ? "into" : "out of");
+  flushLog();
+  esp_restart();
 }
 
 bool hal::sdSpace(uint64_t& total, uint64_t& used) {
