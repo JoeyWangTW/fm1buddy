@@ -10,6 +10,7 @@
 #include "fm1.h"
 #include "hal.h"
 #include "jobs.h"
+#include "midi.h"
 #include "ui_priv.h"
 
 using namespace ui;
@@ -257,10 +258,10 @@ void ui::firmwarePage(lv_obj_t* page) {
   status = line(page, "", &lv_font_montserrat_12, t.dim);
   lv_obj_set_width(status, LV_PCT(100));
 
-  // the Hub's list, the first time it's looked at after power-on
-  if (source == HUB && settings.hubAuto && !hubAsked && settings.ssid[0] && hal::sd()) {
+  // the Hub's list, the first time it's looked at after power-on (not while MIDI routing is on: Wi-Fi is off then)
+  if (source == HUB && settings.hubAuto && !hubAsked && settings.ssid[0] && hal::sd() && !midi::routing) {
     hubAsked = true;
-    jobs::hubList();
+    jobs::hubList(false);
   }
   fillList();
   showStatus();

@@ -1,5 +1,6 @@
-// MIDI: what is plugged into the hub (everything any of them plays goes to all the others), and Bluetooth MIDI (off
-// until it's turned on here; then on after power-on too)
+// MIDI: MIDI routing (on: everything any device plays goes to all the others, and Bluetooth MIDI runs; Wi-Fi is off
+// meanwhile), what is plugged into the hub, and Bluetooth MIDI (off until it's turned on here; then on after power-on
+// too, whenever routing is)
 #include <stdio.h>
 
 #include "fm1.h"
@@ -23,6 +24,34 @@ static void lastText(const midi::Dev& v, char* s, int n) {
   char m[40];
   midi::describe(v.last, m, sizeof m);
   snprintf(s, n, "%s   (%u)", m, (unsigned)v.count);
+}
+
+static bool checked(lv_event_t* e) {
+  return lv_obj_has_state((lv_obj_t*)lv_event_get_target(e), LV_STATE_CHECKED);
+}
+
+static void toggleRouting(lv_event_t* e) {
+  midi::route(checked(e));
+  go(midiPage);
+}
+
+static void toggleBoot(lv_event_t* e) {
+  bool on = checked(e);
+  hal::save("routing", &on, 1);
+}
+
+// a row: a name and a switch
+static lv_obj_t* switchRow(lv_obj_t* body, const char* name, bool on, lv_event_cb_t cb, const lv_font_t* font) {
+  const Theme& t = theme();
+  lv_obj_t* r = listRow(body, 0, 0);
+  lv_obj_t* l = label(r, name, font, t.text);
+  lv_obj_set_flex_grow(l, 1);
+  lv_obj_t* sw = lv_switch_create(r);
+  if (on) {
+    lv_obj_add_state(sw, LV_STATE_CHECKED);
+  }
+  lv_obj_add_event_cb(sw, cb, LV_EVENT_VALUE_CHANGED, 0);
+  return r;
 }
 
 static void toggleBt(lv_event_t* e) {
@@ -71,6 +100,19 @@ void ui::midiPage(lv_obj_t* page) {
   lv_obj_set_style_pad_row(body, 4, 0);
   shownSeq = midi::seq;
 
+  // routing, and whether it starts at power-on
+  switchRow(body, LV_SYMBOL_SHUFFLE "  MIDI routing", midi::routing, toggleRouting, &lv_font_montserrat_16);
+  bool atBoot = false;
+  hal::load("routing", &atBoot, 1);
+  switchRow(body, "     Start it on power-up", atBoot, toggleBoot, &lv_font_montserrat_14);
+  lv_obj_t* about = label(body,
+                          midi::routing ? "Everything a device plays goes to the others (and Bluetooth MIDI runs). Wi-Fi is "
+                                          "off: refreshing the Hub list turns routing off."
+                                        : "Off: the devices don't hear each other, and Wi-Fi stays on once it's joined.",
+                          &lv_font_montserrat_12, midi::routing ? t.dim : t.knob[1]);
+  lv_label_set_long_mode(about, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(about, LV_PCT(100));
+
   int n = 0;
   for (int d = 0; d < MIDI_DEVS; d++) {
     dots[d] = lasts[d] = dropLabels[d] = 0;
@@ -112,7 +154,7 @@ void ui::midiPage(lv_obj_t* page) {
     lv_label_set_long_mode(none, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(none, LV_PCT(100));
     lv_obj_set_style_pad_ver(none, 6, 0);
-  } else if (!midi::thru) {
+  } else if (!midi::thru && midi::routing) {
     label(body, "Installing: MIDI waits until it's done.", &lv_font_montserrat_12, t.knob[1]);
   }
 
@@ -125,13 +167,15 @@ void ui::midiPage(lv_obj_t* page) {
     lv_obj_add_state(sw, LV_STATE_CHECKED);
   }
   lv_obj_add_event_cb(sw, toggleBt, LV_EVENT_VALUE_CHANGED, 0);
-  const char* about = bt ? "Phones, tablets and computers can connect to \"fm1buddy\". Keyboards and synths around show "
-                           "here: tap one to connect it (it's remembered). Off while Wi-Fi is on."
-                         : "Phones, tablets and Bluetooth keyboards join the devices on the hub.";
-  lv_obj_t* note = label(body, about, &lv_font_montserrat_12, t.dim);
+  const char* btAbout = !midi::routing ? "Phones, tablets and Bluetooth keyboards join the devices on the hub, while MIDI "
+                                         "routing is on."
+                        : bt           ? "Phones, tablets and computers can connect to \"fm1buddy\". Keyboards and synths around show "
+                                         "here: tap one to connect it (it's remembered)."
+                                       : "Phones, tablets and Bluetooth keyboards join the devices on the hub.";
+  lv_obj_t* note = label(body, btAbout, &lv_font_montserrat_12, t.dim);
   lv_label_set_long_mode(note, LV_LABEL_LONG_WRAP);
   lv_obj_set_width(note, LV_PCT(100));
-  if (bt) {
+  if (bt && midi::routing) {
     hal::BlePeer peers[6];
     int np = hal::blePeers(peers, 6);
     for (int i = 0; i < np; i++) {

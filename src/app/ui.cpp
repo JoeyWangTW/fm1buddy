@@ -371,6 +371,9 @@ static void logCounts() {
 }
 
 static void watch(lv_timer_t*) {
+  if (jobs::routingStopped()) {
+    toast("MIDI routing is off: Wi-Fi is on.");
+  }
   if (seenFinished != jobs::finished) {  // (a quick one may start and end between two looks)
     seenFinished = jobs::finished;
     if (jobs::ok && jobs::kind == jobs::HUB) {
@@ -410,6 +413,9 @@ void ui::begin() {
   if (hal::load("bluetooth", &bt, 1) && bt) {
     hal::bleOn(true);
   }
+  bool routing = false;  // MIDI routing from power-on (its own switch on the MIDI page)
+  hal::load("routing", &routing, 1);
+  midi::route(routing && !hal::diskMode());
   std::string err;
   catalog::parseHub(catalog::hub, catalog::hubUpdated, err);
   catalog::scanSd();

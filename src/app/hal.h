@@ -68,9 +68,10 @@ void bleOn(bool on);
 bool bleIsOn();
 void bleSearch(bool on);  // look for keyboards and synths all the time (the MIDI page shows)
 int blePeers(BlePeer* out, int max);
-void bleToggle(int i);  // connect and remember peer i, or forget and disconnect it
-bool bleChanged();      // the list changed (once)
-void bleHold(bool on);  // Bluetooth stops for a while (an FM-1 install), and comes back as it was
+void bleToggle(int i);   // connect and remember peer i, or forget and disconnect it
+bool bleChanged();       // the list changed (once)
+void bleHold(bool on);   // Bluetooth stops for a while (an FM-1 install), and comes back as it was
+void bleAllow(bool on);  // it runs only while MIDI routing is on (midi.h route)
 
 // USB disk: the SD card as a USB drive for a computer on the USB-C port, instead of the hub. A mode the board restarts
 // into, and out of (diskModeSet; the simulator only pretends): in it, sd() is 0 (nothing here reads or writes the
