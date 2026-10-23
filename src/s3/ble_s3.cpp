@@ -4,8 +4,9 @@
 //   connected again whenever it's around
 //
 // The NimBLE stack only runs while it's on: off, it's not even started (its memory is free). Everything here runs in
-// the main loop (board::bleLoop); the NimBLE task's callbacks only queue events for it. Wi-Fi asks it to stop for a
-// while (board::blePause): both don't fit in the internal RAM.
+// the main loop (board::bleLoop); the NimBLE task's callbacks only queue events for it. It runs only while MIDI routing
+// is on (hal::bleAllow), and stops while Wi-Fi is (board::blePause: both don't fit in the internal RAM) and during an
+// install (hal::bleHold).
 #include <Arduino.h>
 #include <NimBLEDevice.h>
 #include <Preferences.h>
@@ -55,7 +56,12 @@ struct Ev {
 static RingbufHandle_t evq;
 static Preferences prefs;
 static bool want, up, searching, dirty, loaded;  // want: it's on (the switch); up: the stack runs
-static std::atomic<bool> pauseWanted{false}, paused{false};
+// why it's stopped though it's on: Wi-Fi (they don't both fit), held (an FM-1 install), MIDI routing is off
+#define PAUSE_WIFI 1
+#define PAUSE_HOLD 2
+#define PAUSE_ROUTING 4
+static std::atomic<uint8_t> pauses{PAUSE_ROUTING};
+static std::atomic<bool> paused{false};
 static uint32_t scanAt;
 static NimBLEServer* server;
 static NimBLECharacteristic* chr;
@@ -625,7 +631,7 @@ static void connect() {
 }
 
 void board::bleLoop() {
-  bool run = want && !pauseWanted;
+  bool run = want && !pauses;
   if (run && !up) {
     start();
   } else if (!run && up) {
@@ -638,9 +644,14 @@ void board::bleLoop() {
   }
 }
 
-void board::blePause(bool on) {
-  pauseWanted = on;
-  if (on) {  // wait until the loop has stopped it
+// wait: until the loop has stopped it (not from the loop itself: the UI)
+static void pauseFor(uint8_t why, bool on, bool wait) {
+  if (on) {
+    pauses |= why;
+  } else {
+    pauses &= (uint8_t)~why;
+  }
+  if (on && wait) {
     for (uint32_t t = millis(); !paused && millis() - t < 3000;) {
       delay(10);
     }
@@ -648,8 +659,16 @@ void board::blePause(bool on) {
 }
 
 // ------------------------------------------------------------------------------------------- hal.h ---
+void board::blePause(bool on) {
+  pauseFor(PAUSE_WIFI, on, true);
+}
+
 void hal::bleHold(bool on) {
-  board::blePause(on);
+  pauseFor(PAUSE_HOLD, on, true);
+}
+
+void hal::bleAllow(bool on) {
+  pauseFor(PAUSE_ROUTING, !on, false);
 }
 
 void hal::bleOn(bool on) {

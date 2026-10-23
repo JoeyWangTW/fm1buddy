@@ -12,6 +12,7 @@
 #include <thread>
 
 #include "fm1.h"
+#include "midi.h"
 #include "settings.h"
 #include "uboot.h"
 
@@ -59,7 +60,6 @@ static bool start(Kind k, void (*fn)(void*)) {
 }
 
 static void finish(bool good) {
-  hal::wifiOff();
   hal::log("job: %s %s%s%s", NAMES[(int)kind], good ? "done" : "failed", good ? "" : ": ", good ? "" : error.c_str());
   ok = good;
   step = IDLE;
@@ -67,7 +67,35 @@ static void finish(bool good) {
   finished++;
 }
 
-static bool joinSaved() {
+static std::atomic<bool> routingWent{false};
+static bool hubAsked = true;
+
+bool jobs::routingStopped() {
+  return routingWent.exchange(false);
+}
+
+// Wi-Fi for a job: it stays on once it's joined. MIDI routing goes off for it if the user asked (they can't both run);
+// an automatic job doesn't stop it
+static bool wifiFor(bool asked) {
+  if (!midi::routing) {
+    return true;
+  }
+  if (!asked) {
+    error = "MIDI routing is on, so Wi-Fi is off.";
+    return false;
+  }
+  midi::route(false);
+  routingWent = true;
+  return true;
+}
+
+static bool joinSaved(bool asked = true) {
+  if (!wifiFor(asked)) {
+    return false;
+  }
+  if (hal::wifiOn()) {
+    return true;  // (still on)
+  }
   if (!settings.ssid[0]) {
     error = "No Wi-Fi network yet: pick one in Settings.";
     return false;
@@ -98,7 +126,7 @@ static void hubJob(void*) {
     error = "No SD card: the list is kept on it.";
     return finish(false);
   }
-  if (!joinSaved()) {
+  if (!joinSaved(hubAsked)) {
     return finish(false);
   }
   mkdirs();
@@ -109,7 +137,6 @@ static void hubJob(void*) {
   hal::log("job: getting the list (etag %s)", etag.c_str());
   int code = hal::get(HUB_SITE "catalog.json", cache.c_str(), &etag, progress, error);
   hal::log("job: HTTP %d", code);
-  hal::wifiOff();
   if (code != 200 && code != 304) {
     if (code > 0) {
       error = "The Hub said " + std::to_string(code) + ".";
@@ -141,7 +168,6 @@ static bool fetch() {
   hal::log("job: getting %s", target.pkg.c_str());
   int code = hal::get((HUB_SITE + target.pkg).c_str(), p.c_str(), 0, progress, error);
   hal::log("job: HTTP %d", code);
-  hal::wifiOff();
   if (code != 200) {
     if (code > 0) {
       error = "The Hub said " + std::to_string(code) + ".";
@@ -241,6 +267,7 @@ static void installJob(void*) {
 
 static void scanJob(void*) {
   aps.clear();
+  wifiFor(true);
   bool good = hal::wifiScan(aps);
   if (!good) {
     error = "Wi-Fi didn't scan.";
@@ -250,10 +277,15 @@ static void scanJob(void*) {
 
 static void joinJob(void*) {
   step = JOINING;
+  wifiFor(true);
   finish(hal::wifiJoin(ssid.c_str(), pass.c_str(), error));
 }
 
-bool jobs::hubList() {
+bool jobs::hubList(bool asked) {
+  if (running) {
+    return false;
+  }
+  hubAsked = asked;
   return start(HUB, hubJob);
 }
 
@@ -345,7 +377,6 @@ static void backupJob(void*) {
     }
     step = FETCHING;
     int code = hal::get(UBOOT_LOADER_URL, catalog::path(UBOOT_LOADER).c_str(), 0, progress, error);
-    hal::wifiOff();
     if (code != 200 || !uboot::haveLoader()) {
       remove(catalog::path(UBOOT_LOADER).c_str());
       if (code == 200 || error.empty()) {

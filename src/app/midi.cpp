@@ -14,6 +14,7 @@
 
 namespace midi {
 std::atomic<bool> thru{true};
+std::atomic<bool> routing{false};
 std::atomic<uint32_t> seq{0};
 }  // namespace midi
 
@@ -55,6 +56,15 @@ static void reset(Slot& s) {
 }
 
 // ------------------------------------------------------------------------------------------ the host ---
+void midi::route(bool on) {
+  routing = on;
+  if (on) {
+    hal::wifiOff();  // (and Bluetooth may run)
+  }
+  hal::bleAllow(on);
+  hal::log("midi: routing %s", on ? "on" : "off");
+}
+
 void midi::mount(int d, uint16_t vid, uint16_t pid, const char* name) {
   if (d < 0 || d >= MIDI_DEVS) {
     return;
@@ -171,7 +181,7 @@ static void inLocked(int d, const uint8_t p[4]) {
   if (cin == 0x4 || cin == 0x5 || cin == 0x6 || cin == 0x7) {
     s.d.lastIn = hal::millis();
   }
-  if (!thru) {
+  if (!thru || !routing) {
     return;
   }
   uint8_t q[4] = {cin, p[1], p[2], p[3]};  // cable 0

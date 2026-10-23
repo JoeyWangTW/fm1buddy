@@ -633,6 +633,10 @@ void hal::bleSearch(bool) {}
 
 void hal::bleHold(bool) {}
 
+void hal::bleAllow(bool on) {
+  hal::log("bluetooth: %s", on ? "allowed (MIDI routing)" : "stopped (no MIDI routing)");
+}
+
 int hal::blePeers(BlePeer* out, int max) {
   if (!bleWant) {
     return 0;
