@@ -602,6 +602,9 @@ uint32_t hal::midiOut(int d, const uint8_t* p, uint32_t n) {
     return n;  // the keyboard ignores it all
   }
   for (uint32_t i = 0; i < n; i++, p += 4) {
+    if ((p[0] & 0x0F) >= 0x8 && (p[0] & 0x0F) <= 0xE) {  // (to check MIDI routing and mapping)
+      hal::log("fake fm-1: got %02X %02X %02X", p[1], p[2], p[3]);
+    }
     uint8_t cin = p[0] & 0x0F, k = cin == 0x4 || cin == 0x7 ? 3 : cin == 0x6 ? 2
                                                               : cin == 0x5   ? 1
                                                                              : 0;

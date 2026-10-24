@@ -1,11 +1,12 @@
 // MIDI between the devices on the hub: whatever any of them sends goes to all the others ("thru"), except while the
-// FM-1 is being updated. The board's USB host task calls mount, umount, in and service; the rest is safe from any
+// FM-1 is being updated, or as the mapping's rules say (midimap.h). The board's USB host task calls mount, umount, in and service; the rest is safe from any
 // thread.
 #pragma once
 
 #include <stdint.h>
 
 #include <atomic>
+#include <string>
 #include <vector>
 
 #define MIDI_USB 4    // devices 0-3: USB, on the hub
@@ -31,6 +32,11 @@ extern std::atomic<bool> thru;  // everything to everything (off for a moment: a
 // turns Wi-Fi off, and Wi-Fi coming on pauses Bluetooth
 extern std::atomic<bool> routing;
 void route(bool on);
+// MIDI mapping (midimap.h): the rules in /midimap.txt on the SD card, for routing (a file that only explains itself is
+// written when there's none). How many rules there are, and what's wrong with the file ("" if nothing). From the UI
+int loadMap();
+int mapRules();
+std::string mapProblem();
 extern std::atomic<uint32_t> seq;  // goes up when a device comes or goes
 
 // a copy of device d: false if nothing is there

@@ -7,7 +7,9 @@
 #include <mutex>
 #include <thread>
 
+#include "catalog.h"
 #include "hal.h"
+#include "midimap.h"
 
 #define OUT_N 512  // packets waiting for each device
 #define SYSEX_Q 8
@@ -50,6 +52,54 @@ static Slot* slots = new Slot[MIDI_DEVS]();
 
 #define CAP_MAX (1024 * 1024)
 
+// the mapping's rules, and each one's devices (from the names, again when a device comes or goes)
+static std::vector<MapRule> rules;
+static std::vector<uint32_t> fromDevs, toDevs;
+static uint32_t devsSeq = ~0u;
+static std::string problem;
+
+static void devsFor() {
+  if (devsSeq == seq) {
+    return;
+  }
+  devsSeq = seq;
+  fromDevs.assign(rules.size(), 0);
+  toDevs.assign(rules.size(), 0);
+  for (size_t i = 0; i < rules.size(); i++) {
+    for (int o = 0; o < MIDI_DEVS; o++) {
+      if (slots[o].d.on) {
+        fromDevs[i] |= midimap::matches(rules[i].from, slots[o].d.name) ? 1u << o : 0;
+        toDevs[i] |= rules[i].to[0] && midimap::matches(rules[i].to, slots[o].d.name) ? 1u << o : 0;
+      }
+    }
+  }
+}
+
+int midi::loadMap() {
+  std::vector<MapRule> r;
+  std::string why;
+  std::string path = catalog::path(MAP_FILE);
+  if (!path.empty() && !midimap::load(path.c_str(), r, why)) {
+    midimap::writeHelp(path.c_str());  // (no rules: as without one)
+  }
+  std::lock_guard<std::mutex> g(lock);
+  rules.swap(r);
+  problem = why;
+  devsSeq = ~0u;
+  hal::log("midi: %u mapping rules%s%s", (unsigned)rules.size(), why.empty() ? "" : ", ", why.c_str());
+  return rules.size();
+}
+
+int midi::mapRules() {
+  std::lock_guard<std::mutex> g(lock);
+  return rules.size();
+}
+
+std::string midi::mapProblem() {
+  std::lock_guard<std::mutex> g(lock);
+  return problem;
+}
+
 static void reset(Slot& s) {
   delete s.cap;
   memset(&s, 0, sizeof s);
@@ -57,6 +107,9 @@ static void reset(Slot& s) {
 
 // ------------------------------------------------------------------------------------------ the host ---
 void midi::route(bool on) {
+  if (on && !routing) {
+    loadMap();
+  }
   routing = on;
   if (on && hal::bleIsOn()) {
     hal::wifiOff();  // Bluetooth MIDI runs: Wi-Fi can't (they don't both fit)
@@ -185,8 +238,20 @@ static void inLocked(int d, const uint8_t p[4]) {
     return;
   }
   uint8_t q[4] = {cin, p[1], p[2], p[3]};  // cable 0
+  uint32_t to = 0;                         // the devices it goes to (0: all the others)
+  if (cin >= 0x8 && cin <= 0xE && !rules.empty()) {
+    devsFor();
+    uint8_t m[3];
+    uint32_t n;
+    if (midimap::apply(rules, fromDevs.data(), toDevs.data(), d, p + 1, m, &n, &to) >= 0) {
+      if (!n) {
+        return;  // dropped
+      }
+      q[0] = m[0] >> 4, q[1] = m[0], q[2] = m[1], q[3] = n > 2 ? m[2] : 0;
+    }
+  }
   for (int o = 0; o < MIDI_DEVS; o++) {
-    if (o != d && slots[o].d.on) {
+    if (o != d && slots[o].d.on && (!to || to >> o & 1)) {
       push(slots[o], q);
     }
   }
