@@ -5,14 +5,20 @@ All without a computer/phone/etc:
 - Switch the M-VAVE FM-1's firmware, on the fly (from the SD card, or the [FM-1 Firmware Hub](https://thefirmwarehub.com) and download over Wi-Fi, from [the firmware hub](https://thefirmwarehub.com/))
 - Play it from cheap USB-only (up to 4, on a hub) and Bluetooth MIDI devices, even if FM-1 firmware only supports USB MIDI
 - touchscreen
-- nice menus (same themes as [fomajam](https://github.com/konsumer/fomajam))
-- Backup flash/settings/presets/etc (from stock V15, or firmwares like fomajam)
+- nice themed menus
+- Backup flash/settings/presets/etc (from stock V15, or any firmware)
 - Send/record sounds (.syx, like DX7 banks)
-- Sample-management for [fomajam](https://github.com/konsumer/fomajam) (folders of WAV to its sample-banks, and back)
-- Extra features that work with [fomajam](https://github.com/konsumer/fomajam), like load/save its song & sample-banks quickly (for swapping sets at a live show), and export them as MIDI/WAV
-- MIDI-routing: Bluetooth & USB devices pass notes, clock & controls to each other, or map them with rules in `midimap.txt` on the SD card (say, several controllers each onto their own FM-1 channel). Bluetooth MIDI and Wi-Fi take turns: they don't both fit
+- MIDI-routing: Bluetooth & USB devices pass notes, clock & controls to each other, or map them with rules in `midimap.txt` on the SD card (say, several controllers each onto their own FM-1 channel).
+- Sample-management (folders of WAV to its sample-banks, and back)
 - Act as USB disk (to manage files on SD)
+- MIDI-out, turn FM1 into a sequencer (on supported firmware, like [fomajam](https://github.com/konsumer/fomajam))
 - FM1 Recover: write a firmware or backup to an FM-1 that won't start, like [FM-1-transporter](https://github.com/kurogedelic/FM-1-transporter) with no wiring needed (when people say "use RP2040"). Not tested on a real FM-1 yet
+
+It should be useful for most firmware, depending on what it supports, but it has some extra stuff that is specific to [fomajam](https://github.com/konsumer/fomajam):
+
+- load/save song
+- load/save sample-banks quickly (for swapping sets at a live show)
+- export as MIDI/WAV for use n other programs
 
 No soldering or assembly needed, just get a cheap [Freenove ESP32-S3 2.8"](https://store.freenove.com/products/fnk0104?variant=45040270213318) (FNK0104B.) It comes in other sizes too, but the firmware is made for this exact model (its screen, touch and SD pins). You might additionally need a USB power-splitter and/or a small USB hub, depending on what you are doing.
 
