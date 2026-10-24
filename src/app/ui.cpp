@@ -415,6 +415,9 @@ void ui::begin() {
   }
   bool routing = false;  // MIDI routing from power-on (its own switch on the MIDI page)
   hal::load("routing", &routing, 1);
+  if (!hal::diskMode() && !hal::recoveryMode()) {
+    midi::loadMap();
+  }
   midi::route(routing && !hal::diskMode() && !hal::recoveryMode());
   std::string err;
   catalog::parseHub(catalog::hub, catalog::hubUpdated, err);

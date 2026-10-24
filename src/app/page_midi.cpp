@@ -1,4 +1,5 @@
-// MIDI: MIDI routing (on: everything any device plays goes to all the others, Bluetooth MIDI's too), what is plugged
+// MIDI: MIDI routing (on: everything any device plays goes to all the others, Bluetooth MIDI's too, unless the mapping in
+// /midimap.txt says otherwise: midimap.h), what is plugged
 // into the hub, and Bluetooth MIDI (off until it's turned on here; then on after power-on too, whenever routing is).
 // Bluetooth MIDI and Wi-Fi don't both fit: one pauses the other
 #include <stdio.h>
@@ -6,6 +7,7 @@
 #include "fm1.h"
 #include "hal.h"
 #include "midi.h"
+#include "midimap.h"
 #include "ui_priv.h"
 
 using namespace ui;
@@ -32,6 +34,15 @@ static bool checked(lv_event_t* e) {
 
 static void toggleRouting(lv_event_t* e) {
   midi::route(checked(e));
+  go(midiPage);
+}
+
+static void reloadTapped(lv_event_t*) {
+  int n = midi::loadMap();
+  std::string why = midi::mapProblem();
+  char s[64];
+  snprintf(s, sizeof s, "%d mapping rule%s read.", n, n == 1 ? "" : "s");
+  toast(why.empty() ? s : why.c_str(), !why.empty());
   go(midiPage);
 }
 
@@ -113,12 +124,40 @@ void ui::midiPage(lv_obj_t* page) {
   bool atBoot = false;
   hal::load("routing", &atBoot, 1);
   switchRow(body, "     Start it on power-up", atBoot, toggleBoot, &lv_font_montserrat_14);
+  int rules = midi::mapRules();
   lv_obj_t* about = label(body,
-                          midi::routing ? "Everything a device plays goes to the others, Bluetooth MIDI's too."
-                                        : "Off: the devices don't hear each other.",
+                          !midi::routing ? "Off: the devices don't hear each other."
+                          : rules        ? "What a device plays goes to the others, Bluetooth MIDI's too, as the "
+                                           "mapping says."
+                                         : "Everything a device plays goes to the others, Bluetooth MIDI's too.",
                           &lv_font_montserrat_12, midi::routing ? t.dim : t.knob[1]);
   lv_label_set_long_mode(about, LV_LABEL_LONG_WRAP);
   lv_obj_set_width(about, LV_PCT(100));
+
+  // the mapping: /midimap.txt
+  if (hal::sd()) {
+    lv_obj_t* mr = box(body, LV_FLEX_FLOW_ROW);
+    lv_obj_set_width(mr, LV_PCT(100));
+    lv_obj_set_flex_align(mr, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(mr, 8, 0);
+    std::string why = midi::mapProblem();
+    char s[96];
+    if (rules) {
+      snprintf(s, sizeof s, "Mapping: %d rule%s in " MAP_FILE, rules, rules == 1 ? "" : "s");
+    } else {
+      snprintf(s, sizeof s, "No mapping: rules go in " MAP_FILE " (it explains how)");
+    }
+    lv_obj_t* ml = label(mr, s, &lv_font_montserrat_12, rules ? t.accent : t.dim);
+    lv_label_set_long_mode(ml, LV_LABEL_LONG_WRAP);
+    lv_obj_set_flex_grow(ml, 1);
+    button(mr, LV_SYMBOL_REFRESH, reloadTapped);
+    if (!why.empty()) {
+      lv_obj_t* wl = label(body, (MAP_FILE ", " + why + " (that line is left out)").c_str(), &lv_font_montserrat_12,
+                           t.knob[0]);
+      lv_label_set_long_mode(wl, LV_LABEL_LONG_WRAP);
+      lv_obj_set_width(wl, LV_PCT(100));
+    }
+  }
 
   int n = 0;
   for (int d = 0; d < MIDI_DEVS; d++) {

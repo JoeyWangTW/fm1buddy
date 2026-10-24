@@ -10,7 +10,7 @@ All without a computer/phone/etc:
 - Send/record sounds (.syx, like DX7 banks)
 - Sample-management for [fomajam](https://github.com/konsumer/fomajam) (folders of WAV to its sample-banks, and back)
 - Extra features that work with [fomajam](https://github.com/konsumer/fomajam), like load/save its song & sample-banks quickly (for swapping sets at a live show), and export them as MIDI/WAV
-- MIDI-routing: Bluetooth & USB devices pass notes, clock & controls to each other (Bluetooth MIDI and Wi-Fi take turns: they don't both fit)
+- MIDI-routing: Bluetooth & USB devices pass notes, clock & controls to each other, or map them with rules in `midimap.txt` on the SD card (say, several controllers each onto their own FM-1 channel). Bluetooth MIDI and Wi-Fi take turns: they don't both fit
 - Act as USB disk (to manage files on SD)
 - FM1 Recover: write a firmware or backup to an FM-1 that won't start, like [FM-1-transporter](https://github.com/kurogedelic/FM-1-transporter) with no wiring needed (when people say "use RP2040"). Not tested on a real FM-1 yet
 

@@ -197,6 +197,10 @@ void ui::recoverStartPage(lv_obj_t* page) {
           "it as the FM-1 is switched on, saves its flash as it was to the SD card, and writes a firmware or a backup "
           "back onto it (the part the chip starts from is never written).",
           &lv_font_montserrat_12, t.text);
+  wrapped(body,
+          "Try this first: hold OCT- while switching the FM-1 on. That starts its update mode (if it still has it), "
+          "and Firmware installs on it as ever, on the hub.",
+          &lv_font_montserrat_12, t.dim);
 
   // what goes on it
   label(body, "1. What goes on it", &lv_font_montserrat_14, t.text);
