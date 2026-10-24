@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <string>
 #include <thread>
@@ -605,6 +606,15 @@ uint32_t hal::midiOut(int d, const uint8_t* p, uint32_t n) {
     if ((p[0] & 0x0F) >= 0x8 && (p[0] & 0x0F) <= 0xE) {  // (to check MIDI routing and mapping)
       hal::log("fake fm-1: got %02X %02X %02X", p[1], p[2], p[3]);
     }
+    if ((p[0] & 0x0F) == 0xF) {  // realtime: clock (a line a beat), start, stop
+      static uint32_t clocks;
+      if (p[1] == 0xF8 && ++clocks % 24 == 0) {
+        hal::log("fake fm-1: clock, %u beats", (unsigned)(clocks / 24));
+      } else if (p[1] == 0xFA || p[1] == 0xFC) {
+        hal::log("fake fm-1: got %s", p[1] == 0xFA ? "start" : "stop");
+        clocks = 0;
+      }
+    }
     uint8_t cin = p[0] & 0x0F, k = cin == 0x4 || cin == 0x7 ? 3 : cin == 0x6 ? 2
                                                               : cin == 0x5   ? 1
                                                                              : 0;
@@ -700,6 +710,12 @@ bool hal::bleChanged() {
 }
 
 // ---------------------------------------------------------------------------------------------- run ---
+static std::atomic<bool> clockOut{false};
+
+void fake::keysClock(bool on) {
+  clockOut = on;
+}
+
 static void run(bool fm1, bool keys) {
   if (fm1) {
     f.ident = f.fomajam ? "FM-1_961" : "FM-1_015";
@@ -709,7 +725,7 @@ static void run(bool fm1, bool keys) {
   if (keys) {
     midi::mount(KEYS, 0x0944, 0x0115, "nanoKEY2");
   }
-  uint32_t playAt = hal::millis() + 2000;
+  uint32_t playAt = hal::millis() + 2000, clockAt = hal::millis();
   int n = 0;
   for (;;) {
     uint32_t now = hal::millis();
@@ -734,6 +750,11 @@ static void run(bool fm1, bool keys) {
       }
       midi::in(KEYS, p);
       n++;
+    }
+    if (keys && clockOut && (int32_t)(now - clockAt) >= 0) {
+      clockAt += 25;  // 100 BPM: 24 a beat
+      uint8_t p[4] = {0xF, 0xF8, 0, 0};
+      midi::in(KEYS, p);
     }
     midi::service(0, MIDI_DEVS);
     std::this_thread::sleep_for(std::chrono::milliseconds(1));

@@ -48,6 +48,21 @@ static void backupTick() {
   }
 }
 
+bool ui::hasBackup() {
+  std::string dir = catalog::path(BACKUPS_DIR);
+  DIR* dd = dir.empty() ? 0 : opendir(dir.c_str());
+  if (!dd) {
+    return false;
+  }
+  bool any = false;
+  while (dirent* e = readdir(dd)) {
+    size_t n = strlen(e->d_name);
+    any = any || (n > 4 && !strcasecmp(e->d_name + n - 4, ".bin"));
+  }
+  closedir(dd);
+  return any;
+}
+
 static lv_obj_t* wrapped(lv_obj_t* body, const char* text, uint32_t color) {
   lv_obj_t* l = label(body, text, &lv_font_montserrat_12, color);
   lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);

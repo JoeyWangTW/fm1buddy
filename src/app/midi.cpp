@@ -10,6 +10,7 @@
 #include "catalog.h"
 #include "hal.h"
 #include "midimap.h"
+#include "play.h"
 
 #define OUT_N 512  // packets waiting for each device
 #define SYSEX_Q 8
@@ -105,10 +106,16 @@ static void reset(Slot& s) {
   memset(&s, 0, sizeof s);
 }
 
+static void outLocked(int d, const uint8_t* msg, uint32_t n);
+
 // ------------------------------------------------------------------------------------------ the host ---
 void midi::route(bool on) {
   if (on && !routing) {
     loadMap();
+  }
+  if (!on && routing) {
+    std::lock_guard<std::mutex> g(lock);
+    play::allOffLocked(outLocked);  // (while it still goes out)
   }
   routing = on;
   if (on && hal::bleIsOn()) {
@@ -199,6 +206,7 @@ static void sysexByte(Slot& s, uint8_t b) {
 }
 
 static void inLocked(int d, const uint8_t p[4]);
+static void routeLocked(int d, const uint8_t p[4]);
 
 void midi::in(int d, const uint8_t p[4]) {
   if (d < 0 || d >= MIDI_DEVS) {
@@ -237,6 +245,18 @@ static void inLocked(int d, const uint8_t p[4]) {
   if (!thru || !routing) {
     return;
   }
+  if (cin == 0xF && p[1] >= 0xF8 && play::realtimeLocked(d, p[1], outLocked)) {
+    return;  // (leading: the devices' own clock)
+  }
+  if ((cin == 0x8 || cin == 0x9) && play::noteLocked(d, p + 1, outLocked)) {
+    return;  // the arpeggiator or chords have it
+  }
+  routeLocked(d, p);
+}
+
+// a packet from device d on to the others, through the mapping
+static void routeLocked(int d, const uint8_t p[4]) {
+  uint8_t cin = p[0] & 0x0F;
   uint8_t q[4] = {cin, p[1], p[2], p[3]};  // cable 0
   uint32_t to = 0;                         // the devices it goes to (0: all the others)
   if (cin >= 0x8 && cin <= 0xE && !rules.empty()) {
@@ -255,6 +275,29 @@ static void inLocked(int d, const uint8_t p[4]) {
       push(slots[o], q);
     }
   }
+}
+
+// play's: a channel message as if device d played it, or (d -1) a realtime byte to every device
+static void outLocked(int d, const uint8_t* msg, uint32_t n) {
+  if (!thru || !routing) {
+    return;
+  }
+  if (d < 0) {
+    uint8_t q[4] = {0xF, msg[0], 0, 0};
+    for (int o = 0; o < MIDI_DEVS; o++) {
+      if (slots[o].d.on) {
+        push(slots[o], q);
+      }
+    }
+  } else if (d < MIDI_DEVS && n >= 2) {
+    uint8_t p[4] = {(uint8_t)(msg[0] >> 4), msg[0], msg[1], n > 2 ? msg[2] : (uint8_t)0};
+    routeLocked(d, p);
+  }
+}
+
+void midi::locked(void (*fn)(void*, void (*)(int, const uint8_t*, uint32_t)), void* arg) {
+  std::lock_guard<std::mutex> g(lock);
+  fn(arg, outLocked);
 }
 
 void midi::service(int from, int to) {

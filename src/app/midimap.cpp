@@ -87,13 +87,62 @@ static int side(char w[][24], int n, bool out, MapRule& r, const char** why) {
     (out ? r.outType : r.inType) = (uint8_t)typeOf(w[i]);
     i++;
     if (i < n && isdigit((unsigned char)w[i][0])) {
-      uint8_t v;
-      if (!number(w[i], 127, v)) {
+      uint8_t v, hi;
+      char* dash = out ? 0 : strchr(w[i], '-');  // a range, on the left
+      if (dash) {
+        *dash = 0;
+      }
+      if (!number(w[i], 127, v) || (dash && !number(dash + 1, 127, hi))) {
         *why = "numbers are 0-127";
         return -1;
       }
-      (out ? r.outNum : r.inNum) = v;
+      if (dash && hi < v) {
+        *why = "a range goes low-high";
+        return -1;
+      }
+      if (out) {
+        r.outNum = v;
+      } else {
+        r.inNum = v;
+        r.inHi = dash ? hi : v;
+      }
       i++;
+    }
+  }
+  // on the right: +N / -N, vel N, vel N%
+  while (out && i < n) {
+    if ((w[i][0] == '+' || w[i][0] == '-') && w[i][1]) {
+      uint8_t v;
+      if (!number(w[i] + 1, 127, v)) {
+        *why = "+N or -N moves notes N semitones";
+        return -1;
+      }
+      r.transpose = (int8_t)(w[i][0] == '-' ? -v : v);
+      i++;
+    } else if (!strcmp(w[i], "vel")) {
+      char num[24];
+      snprintf(num, sizeof num, "%s", i + 1 < n ? w[i + 1] : "");
+      size_t k = strlen(num);
+      bool pct = k && num[k - 1] == '%';
+      if (pct) {
+        num[k - 1] = 0;
+      }
+      int v = 0;
+      for (const char* c = num; *c; c++) {
+        v = isdigit((unsigned char)*c) && v < 1000 ? v * 10 + (*c - '0') : -1000;
+      }
+      if (!num[0] || v < 1 || v > (pct ? 400 : 127)) {
+        *why = "vel is 1-127, or 1-400%";
+        return -1;
+      }
+      if (pct) {
+        r.velPct = (uint16_t)v;
+      } else {
+        r.vel = (uint8_t)v;
+      }
+      i += 2;
+    } else {
+      break;
     }
   }
   return i;
@@ -168,24 +217,28 @@ static const char HELP[] =
     "# fm1buddy MIDI mapping, for MIDI routing: one rule per line. Without rules, everything any device plays goes\n"
     "# to all the others.\n"
     "#\n"
-    "#   [from NAME] [ch N] [TYPE [NUM]] -> [to NAME] [ch N] [TYPE [NUM]]\n"
-    "#   [from NAME] [ch N] [TYPE [NUM]] -> drop\n"
+    "#   [from NAME] [ch N] [TYPE [NUM[-NUM]]] -> [to NAME] [ch N] [TYPE [NUM]] [+N|-N] [vel N|vel N%]\n"
+    "#   [from NAME] [ch N] [TYPE [NUM[-NUM]]] -> drop\n"
     "#\n"
     "# TYPE is note, cc, pc (program change), at (channel pressure) or pb (pitch bend). NAME is part of a device's\n"
-    "# name, as the MIDI page shows it (any case; \"quote it\" if it has spaces). On the right, what you leave out\n"
-    "# stays as it came in; without \"to\", it goes to all the other devices. The first rule that matches a message\n"
-    "# decides; a message no rule matches goes on as it is. Clock, start/stop and SysEx always go on as they are.\n"
+    "# name, as the MIDI page shows it (any case; \"quote it\" if it has spaces). On the left, NUM-NUM is a range\n"
+    "# (note 0-59: the keys below middle C, to split a keyboard). On the right, what you leave out stays as it came\n"
+    "# in; without \"to\", it goes to all the other devices. +N or -N moves notes N semitones; vel N plays every note\n"
+    "# at velocity N, vel N% scales how hard they're played. The first rule that matches a message decides; a\n"
+    "# message no rule matches goes on as it is. Clock, start/stop and SysEx always go on as they are.\n"
     "# For example, two controllers playing the FM-1 on channels of their own:\n"
     "#\n"
     "#   from nanokey -> to fm-1 ch 1\n"
     "#   from \"launchkey mini\" -> to fm-1 ch 2\n"
     "#   from nanokontrol2 ch 1 cc 10 -> to fm-1 ch 2 cc 5      CC 10 becomes CC 5 on channel 2\n"
     "#   from launchkey note 36 -> to fm-1 note 38\n"
+    "#   from keystep note 0-59 -> to fm-1 ch 1 +12            a split: the low keys an octave up on channel 1,\n"
+    "#   from keystep note 60-127 -> to fm-1 ch 2 vel 100       the high keys on channel 2, all at velocity 100\n"
     "#   cc 1 -> pc                                            the mod wheel picks programs\n"
     "#   pb -> drop                                            no pitch bend from anything\n"
     "#\n"
     "# The rules are read when fm1buddy starts, when MIDI routing is turned on, and with the reload button on the\n"
-    "# MIDI page.\n";
+    "# MIDI page. The MIDI page's Mapping can also add and delete rules here, by touch.\n";
 
 bool midimap::writeHelp(const char* path) {
   FILE* f = fopen(path, "w");
@@ -194,6 +247,95 @@ bool midimap::writeHelp(const char* path) {
   }
   bool ok = fputs(HELP, f) >= 0;
   return !fclose(f) && ok;
+}
+
+// a name as the file has it: "quoted" if it has spaces
+static std::string word(const char* s) {
+  return strchr(s, ' ') ? std::string("\"") + s + "\"" : std::string(s);
+}
+
+std::string midimap::text(const MapRule& r) {
+  std::string s;
+  auto num = [&](uint8_t type, uint8_t n, uint8_t hi) {
+    if (!type) {
+      return;
+    }
+    s += std::string(" ") + TYPE_NAMES[type];
+    if (n != MAP_ANY) {
+      s += " " + std::to_string(n);
+      if (hi != MAP_ANY && hi != n) {
+        s += "-" + std::to_string(hi);
+      }
+    }
+  };
+  if (r.from[0]) {
+    s += " from " + word(r.from);
+  }
+  if (r.inCh) {
+    s += " ch " + std::to_string(r.inCh);
+  }
+  num(r.inType, r.inNum, r.inHi);
+  s += " ->";
+  if (r.outType == MAP_DROP) {
+    return s.substr(s[0] == ' ') + " drop";
+  }
+  if (r.to[0]) {
+    s += " to " + word(r.to);
+  }
+  if (r.outCh) {
+    s += " ch " + std::to_string(r.outCh);
+  }
+  num(r.outType, r.outNum, MAP_ANY);
+  if (r.transpose) {
+    s += (r.transpose > 0 ? " +" : " -") + std::to_string(abs(r.transpose));
+  }
+  if (r.vel) {
+    s += " vel " + std::to_string(r.vel);
+  } else if (r.velPct) {
+    s += " vel " + std::to_string(r.velPct) + "%";
+  }
+  return s.substr(s[0] == ' ');
+}
+
+std::string midimap::describe(const MapRule& r) {
+  static const char* PLURAL[16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, "notes", 0, "CCs", "programs", "pressure", "pitch bend", 0};
+  static const char* ONE[16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, "note", 0, "CC", "program", "pressure", "pitch bend", 0};
+  auto what = [](uint8_t type, uint8_t n, uint8_t hi) {
+    if (!type) {
+      return std::string();
+    }
+    if (n == MAP_ANY) {
+      return std::string(PLURAL[type]);
+    }
+    if (hi != MAP_ANY && hi != n) {
+      return std::string(PLURAL[type]) + " " + std::to_string(n) + "-" + std::to_string(hi);
+    }
+    return std::string(ONE[type]) + " " + std::to_string(n);
+  };
+  auto join = [](std::string a, const std::string& b) { return a.empty() ? b : b.empty() ? a
+                                                                                         : a + ", " + b; };
+  std::string in = r.from[0] ? r.from : "anything";
+  if (r.inCh) {
+    in += " ch " + std::to_string(r.inCh);
+  }
+  in = join(in, what(r.inType, r.inNum, r.inHi));
+  if (r.outType == MAP_DROP) {
+    return in + " -> dropped";
+  }
+  std::string out = r.to[0] ? r.to : "the others";
+  if (r.outCh) {
+    out += " ch " + std::to_string(r.outCh);
+  }
+  out = join(out, what(r.outType, r.outNum, MAP_ANY));
+  if (r.transpose) {
+    out = join(out, (r.transpose > 0 ? "+" : "-") + std::to_string(abs(r.transpose)));
+  }
+  if (r.vel) {
+    out = join(out, "vel " + std::to_string(r.vel));
+  } else if (r.velPct) {
+    out = join(out, "vel " + std::to_string(r.velPct) + "%");
+  }
+  return in + " -> " + out;
 }
 
 bool midimap::matches(const char* part, const char* name) {
@@ -232,7 +374,7 @@ int midimap::apply(const std::vector<MapRule>& rules, const uint32_t* from, cons
         continue;
       }
       // the number: a note's, a CC's, or the program
-      if (r.inNum != MAP_ANY && (hasNum || kind == 0xC) && d1 != r.inNum) {
+      if (r.inNum != MAP_ANY && (hasNum || kind == 0xC) && (d1 < r.inNum || d1 > r.inHi)) {
         continue;
       }
     }
@@ -256,10 +398,23 @@ int midimap::apply(const std::vector<MapRule>& rules, const uint32_t* from, cons
       if (r.outNum == MAP_ANY && !hasNum) {
         num = 60;
       }
+      int moved = num + r.transpose;
+      if (moved < 0 || moved > 127) {  // moved off the keyboard: nothing
+        *outN = 0;
+        return (int)i;
+      }
+      num = (uint8_t)moved;
       // a note off stays one (with its own velocity); anything else is on at its value, off at 0
       if (kind == 0x8 && !r.outType) {
         out[0] = (uint8_t)(0x80 | c), out[1] = num, out[2] = d2;
       } else {
+        if (val && r.vel) {
+          val = r.vel;
+        } else if (val && r.velPct) {
+          uint32_t v = (uint32_t)val * r.velPct / 100;
+          val = (uint8_t)(v < 1 ? 1 : v > 127 ? 127
+                                              : v);
+        }
         out[0] = (uint8_t)((val ? 0x90 : 0x80) | c), out[1] = num, out[2] = val;
       }
       *outN = 3;

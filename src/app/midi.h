@@ -66,4 +66,7 @@ void captured(int d, std::vector<uint8_t>& out);
 
 // "note 60 ch 1", "cc 10 = 64 ch 2", ...
 void describe(const uint8_t m[3], char* out, int n);
+
+// for play.h: fn runs with the lock held, and gets play's out (play.h Out)
+void locked(void (*fn)(void* arg, void (*out)(int d, const uint8_t* msg, uint32_t n)), void* arg);
 }  // namespace midi

@@ -7,6 +7,8 @@
 
 namespace fake {
 void begin(bool fm1, bool keys, bool faults, bool fomajam = false);
+// the keyboard sends MIDI clock too, at 100 BPM (to follow)
+void keysClock(bool on);
 // the FM-1 sends a DX7 bank (as from its menu)
 void dump();
 // fomajam: start or stop playing (it won't load a song while it plays)

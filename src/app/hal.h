@@ -89,7 +89,7 @@ int diskState();
 // themselves), and once the chip's boot loader answers, starts the USB host for it (uboot.h)
 bool recoveryMode();
 void recoveryModeSet(bool on);
-void keyStart();  // once
+void keyStart();               // once
 enum KeyState { KEY_IDLE,      // not started
                 KEY_OFF,       // waiting for the FM-1 to be off (something holds the USB lines)
                 KEY_SENDING,   // the key, again and again: switch it on
@@ -97,6 +97,6 @@ enum KeyState { KEY_IDLE,      // not started
                 KEY_HOST };    // the USB host is up, for its boot loader
 int keyState();
 
-// run fn on a thread of its own
-void spawn(void (*fn)(void*), void* arg);
+// run fn on a thread of its own (on the board: with that much stack, at that priority; 1 is a job's)
+void spawn(void (*fn)(void*), void* arg, uint32_t stack = 16384, int priority = 1);
 }  // namespace hal

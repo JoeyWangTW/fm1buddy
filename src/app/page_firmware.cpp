@@ -314,8 +314,9 @@ static void save(lv_event_t*) {
 
 static void install(lv_event_t* e) {
   lv_obj_t* l = lv_obj_get_child((lv_obj_t*)lv_event_get_target(e), 0);
-  if (strcmp(lv_label_get_text(l), "Sure? Tap again")) {
-    lv_label_set_text(l, "Sure? Tap again");
+  const char* sure = hasBackup() ? "Sure? Tap again" : "No backup. Sure?";
+  if (strcmp(lv_label_get_text(l), sure)) {
+    lv_label_set_text(l, sure);
     return;
   }
   if (!jobs::install(sel)) {
@@ -384,6 +385,20 @@ static void detailPage(lv_obj_t* page) {
   lv_obj_t* f = label(body, facts.c_str(), &lv_font_montserrat_12, t.dim);
   lv_label_set_long_mode(f, LV_LABEL_LONG_WRAP);
   lv_obj_set_width(f, LV_PCT(100));
+
+  // nothing to go back to: a backup first (from stock, it's the only copy of M-VAVE's firmware and the FM-1's
+  // settings, projects and samples)
+  const Fm1Id* now = fm1::known(fm1::current());
+  if (now && !now->ota() && hal::sd() && !hasBackup()) {
+    lv_obj_t* br = box(body, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(br, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(br, 6, 0);
+    lv_obj_t* bl = label(br, LV_SYMBOL_WARNING " No backup of the FM-1 on the SD card yet: one lets you go back.",
+                         &lv_font_montserrat_12, t.knob[1]);
+    lv_label_set_long_mode(bl, LV_LABEL_LONG_WRAP);
+    lv_obj_set_flex_grow(bl, 1);
+    button(br, LV_SYMBOL_SAVE " Back up", [](lv_event_t*) { go(SETTINGS, backupPage); });
+  }
 
   if (!sel.what.empty()) {
     lv_obj_t* w = label(body, sel.what.c_str(), &lv_font_montserrat_14, t.text);
