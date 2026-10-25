@@ -20,7 +20,7 @@
 
 #define BLE_NAME "fm1buddy"
 #define HOST_NAME "bluetooth host"
-#define SLOTS (MIDI_DEVS - MIDI_USB)
+#define SLOTS (MIDI_TOUCH - MIDI_USB)
 #define PEERS 6       // found or remembered
 #define SAVED 3       // remembered (and connections in all)
 #define PKT 128       // the longest packet we send
@@ -585,7 +585,7 @@ static void pump() {
     }
     vRingbufferReturnItem(evq, b);
   }
-  midi::service(MIDI_USB, MIDI_DEVS);
+  midi::service(MIDI_USB, MIDI_TOUCH);
   for (int s = 0; s < SLOTS; s++) {
     if (slots[s].kind != FREE) {
       flush(s);

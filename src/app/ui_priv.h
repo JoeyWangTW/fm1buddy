@@ -58,6 +58,16 @@ void midiPage(lv_obj_t* page);
 void playPage(lv_obj_t* page);    // clock, arpeggiator, chords
 void mapPage(lv_obj_t* page);     // the mapping's rules
 void mapAddPage(lv_obj_t* page);  // a new rule
+void touchPage(lv_obj_t* page);   // the touch controller (all of the screen)
+// the page fm1buddy starts on (Settings): its tab and page
+enum Start { START_FIRMWARE,
+             START_MIDI,
+             START_MAPPING,
+             START_TOUCH,
+             START_SOUNDS,
+             STARTS };
+extern const char* const START_NAMES[STARTS];
+int startPage();
 void soundsPage(lv_obj_t* page);
 void syxPage(lv_obj_t* page);    // a .syx
 void setupPage(lv_obj_t* page);  // a setup

@@ -176,6 +176,7 @@ void ui::midiPage(lv_obj_t* page) {
   }
   char ps[64];
   play::summary(ps, sizeof ps);
+  navRow(body, LV_SYMBOL_KEYBOARD "  Touch controller", "", touchPage, t.dim);
   lv_obj_t* pr = navRow(body, LV_SYMBOL_LOOP "  Clock, arp", ps, playPage, t.dim);
   playDot = label(pr, LV_SYMBOL_BULLET, &lv_font_montserrat_16, t.off);
   lv_obj_move_to_index(playDot, 1);
@@ -188,7 +189,7 @@ void ui::midiPage(lv_obj_t* page) {
     if (!midi::dev(d, v)) {
       continue;
     }
-    n++;
+    n += d != MIDI_TOUCH;
     counts[d] = v.count;
     lv_obj_t* r = listRow(body, 0, 0);
     dots[d] = label(r, LV_SYMBOL_BULLET, &lv_font_montserrat_20, t.off);
@@ -215,9 +216,11 @@ void ui::midiPage(lv_obj_t* page) {
     lv_obj_set_width(lasts[d], LV_PCT(100));
   }
   if (!n) {
-    const char* msg = hal::usbHost() ? "Nothing on the hub. Plug in the FM-1 and a controller: whatever one plays, the others hear."
-                                     : "A computer is on the USB port, so it's a serial port for now. Plug the board into the hub "
-                                       "(through the OTG adapter) to use MIDI.";
+    const char* msg = hal::usbHost()        ? "Nothing on the hub. Plug in the FM-1 and a controller: whatever one plays, the others hear."
+                      : hal::computerMidi() ? "Waiting for the computer to open fm1buddy's USB MIDI."
+                                            : "A computer is on the USB port, as its serial port: USB MIDI devices "
+                                              "need the hub (or Settings > On a computer: USB MIDI). Bluetooth MIDI "
+                                              "and the touch controller work.";
     lv_obj_t* none = label(body, msg, &lv_font_montserrat_14, t.dim);
     lv_label_set_long_mode(none, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(none, LV_PCT(100));

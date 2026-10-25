@@ -270,7 +270,7 @@ static void routeLocked(int d, const uint8_t p[4]) {
       q[0] = m[0] >> 4, q[1] = m[0], q[2] = m[1], q[3] = n > 2 ? m[2] : 0;
     }
   }
-  for (int o = 0; o < MIDI_DEVS; o++) {
+  for (int o = 0; o < MIDI_TOUCH; o++) {  // (nothing goes to the touchscreen)
     if (o != d && slots[o].d.on && (!to || to >> o & 1)) {
       push(slots[o], q);
     }
@@ -284,7 +284,7 @@ static void outLocked(int d, const uint8_t* msg, uint32_t n) {
   }
   if (d < 0) {
     uint8_t q[4] = {0xF, msg[0], 0, 0};
-    for (int o = 0; o < MIDI_DEVS; o++) {
+    for (int o = 0; o < MIDI_TOUCH; o++) {
       if (slots[o].d.on) {
         push(slots[o], q);
       }
@@ -388,7 +388,7 @@ static void streamByte(Enc& s, uint8_t b, F emit) {
 }
 
 void midi::send(int d, const uint8_t* bytes, uint32_t n) {
-  if (d < 0 || d >= MIDI_DEVS) {
+  if (d < 0 || d >= MIDI_TOUCH) {
     return;
   }
   std::lock_guard<std::mutex> g(lock);
@@ -402,7 +402,7 @@ void midi::send(int d, const uint8_t* bytes, uint32_t n) {
 }
 
 bool midi::sendWait(int d, const uint8_t* bytes, uint32_t n, uint32_t ms) {
-  if (d < 0 || d >= MIDI_DEVS) {
+  if (d < 0 || d >= MIDI_TOUCH) {
     return false;
   }
   uint32_t need = n / 3 + 2;  // packets, at most

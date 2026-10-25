@@ -13,6 +13,8 @@ static std::string ssid;  // the network the password is for
 static lv_obj_t *ta, *msg, *scanBtn, *scanSpin, *nets;
 
 static void themePage(lv_obj_t* page);
+static void startOnPage(lv_obj_t* page);
+static void computerPage(lv_obj_t* page);
 static void aboutPage(lv_obj_t* page);
 static void passwordPage(lv_obj_t* page);
 
@@ -55,6 +57,7 @@ void ui::settingsPage(lv_obj_t* page) {
   lv_obj_t* body = scroller(page);
   menuRow(body, LV_SYMBOL_WIFI "  Wi-Fi", settings.ssid[0] ? settings.ssid : "not set", wifiPage);
   menuRow(body, LV_SYMBOL_IMAGE "  Theme", t.name, themePage);
+  menuRow(body, LV_SYMBOL_HOME "  Start on", START_NAMES[startPage()], startOnPage);
 
   lv_obj_t* r = listRow(body, 0, 0);
   lv_obj_set_style_pad_right(r, 16, 0);
@@ -78,6 +81,7 @@ void ui::settingsPage(lv_obj_t* page) {
   menuRow(body, LV_SYMBOL_SAVE "  Back up the FM-1", 0, backupPage);
   menuRow(body, LV_SYMBOL_WARNING "  Recover the FM-1", 0, recoverStartPage);
   menuRow(body, LV_SYMBOL_USB "  USB disk", 0, diskStartPage);
+  menuRow(body, LV_SYMBOL_USB "  On a computer", hal::computerMidi() ? "USB MIDI" : "Serial port", computerPage);
   menuRow(body, LV_SYMBOL_SD_CARD "  About", FM1BUDDY_VERSION, aboutPage);
 }
 
@@ -289,4 +293,81 @@ static void aboutPage(lv_obj_t* page) {
   fact(body, "Firmwares", std::to_string(catalog::sd.size()) + " in /fm1");
   fact(body, "Hub list", catalog::hub.empty() ? "not yet" : std::to_string(catalog::hub.size()) + ", from " + catalog::hubUpdated);
   fact(body, "Hub", "thefirmwarehub.com");
+}
+
+// ------------------------------------------------------------------------------------------ start on ---
+// the page it starts on: as a firmware manager, a MIDI hub, a mapper, a touch controller
+static void startPicked(lv_event_t* e) {
+  uint8_t s = (uint8_t)(intptr_t)lv_event_get_user_data(e);
+  hal::save("start", &s, 1);
+  go(settingsPage);
+}
+
+static void startOnPage(lv_obj_t* page) {
+  const Theme& t = theme();
+  header(page, "Start on", settingsPage);
+  lv_obj_t* body = scroller(page);
+  static const char* const ABOUT[STARTS] = {"Installing and saving firmware", "MIDI routing and devices",
+                                            "The mapping's rules", "Play the screen: X/Y pad, pads",
+                                            "Sounds and setups"};
+  int now = startPage();
+  for (int i = 0; i < STARTS; i++) {
+    lv_obj_t* r = listRow(body, startPicked, (void*)(intptr_t)i);
+    lv_obj_t* col = box(r);
+    lv_obj_set_flex_grow(col, 1);
+    label(col, START_NAMES[i], &lv_font_montserrat_16, i == now ? t.accent : t.text);
+    label(col, ABOUT[i], &lv_font_montserrat_12, t.dim);
+    if (i == now) {
+      label(r, LV_SYMBOL_OK, &lv_font_montserrat_16, t.accent);
+    }
+  }
+  lv_obj_t* l = label(body,
+                      "What it shows after power-up. To play from the start, switch MIDI routing's "
+                      "\"Start it on power-up\" on too (on the MIDI page).",
+                      &lv_font_montserrat_12, t.dim);
+  lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(l, LV_PCT(100));
+  lv_obj_set_style_pad_top(l, 6, 0);
+}
+
+// ---------------------------------------------------------------------------------------- on a computer ---
+// what the USB-C port is with a computer on it: its serial port (flashing, logs), or a USB MIDI device
+static void computerPicked(lv_event_t* e) {
+  bool midi = lv_event_get_user_data(e) != 0;
+  if (midi != hal::computerMidi()) {
+    if (hal::onComputer()) {
+      toast("Restarting...");
+    }
+    hal::computerMidiSet(midi);  // (with a computer on the port: a restart, to take it up)
+  }
+  go(computerPage);
+}
+
+static void computerPage(lv_obj_t* page) {
+  const Theme& t = theme();
+  header(page, "On a computer", settingsPage);
+  lv_obj_t* body = scroller(page);
+  static const char* const NAMES[] = {"Serial port", "USB MIDI"};
+  static const char* const ABOUT[] = {"For flashing it, and its log",
+                                      "\"fm1buddy\" in music apps"};
+  bool now = hal::computerMidi();
+  for (int i = 0; i < 2; i++) {
+    lv_obj_t* r = listRow(body, computerPicked, (void*)(intptr_t)i);
+    lv_obj_t* col = box(r);
+    lv_obj_set_flex_grow(col, 1);
+    label(col, NAMES[i], &lv_font_montserrat_16, i == now ? t.accent : t.text);
+    label(col, ABOUT[i], &lv_font_montserrat_12, t.dim);
+    if (i == now) {
+      label(r, LV_SYMBOL_OK, &lv_font_montserrat_16, t.accent);
+    }
+  }
+  lv_obj_t* l = label(body,
+                      "What the USB-C port is when it's plugged straight into a computer (not the hub). With USB MIDI, "
+                      "the computer is a device in MIDI routing, \"Computer\": the touch controller, the clock and "
+                      "Bluetooth MIDI devices play it, and it plays them. To flash it then, hold BOOT as you plug it "
+                      "in, or choose Serial port first.",
+                      &lv_font_montserrat_12, t.dim);
+  lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(l, LV_PCT(100));
+  lv_obj_set_style_pad_top(l, 6, 0);
 }

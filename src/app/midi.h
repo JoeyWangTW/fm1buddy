@@ -10,7 +10,8 @@
 #include <vector>
 
 #define MIDI_USB 4    // devices 0-3: USB, on the hub
-#define MIDI_DEVS 8   // 4-7: Bluetooth
+#define MIDI_TOUCH 8  // 4-7: Bluetooth
+#define MIDI_DEVS 9   // 8: the touchscreen as a controller (page_touch.cpp): it only plays, nothing goes to it
 #define SYSEX_MAX 96  // the longest SysEx kept (the FM-1's answers are 19 and 41 bytes on the wire)
 
 namespace midi {

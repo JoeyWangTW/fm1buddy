@@ -148,6 +148,7 @@ static struct {
   int from, fromCh, what, split, to, toCh, transpose, vel;
 } draft;
 static std::vector<std::string> names;  // the devices on the hub, for from and to
+static int toCount;                     // those that can be sent to: all but the touchscreen (last)
 static lv_obj_t* addBody;
 static int32_t keepScroll;  // where the page was scrolled to, kept when it's built again
 
@@ -213,7 +214,7 @@ static MapRule drafted() {
       r.inType = MAP_CC, r.inNum = r.inHi = 64;
       break;
   }
-  if (draft.to == (int)names.size() + 1) {
+  if (draft.to == toCount + 1) {
     r.outType = MAP_DROP;
     return r;
   }
@@ -288,21 +289,26 @@ void ui::mapAddPage(lv_obj_t* page) {
   lv_obj_set_style_pad_row(body, 2, 0);
 
   names.clear();
+  toCount = 0;
   for (int d = 0; d < MIDI_DEVS; d++) {
     midi::Dev v;
     if (midi::dev(d, v)) {
       names.push_back(v.name);
+      toCount += d != MIDI_TOUCH;
     }
   }
-  std::string devs;
-  for (const std::string& n : names) {
-    devs += "\n" + n;
+  std::string devs, toDevs;
+  for (size_t i = 0; i < names.size(); i++) {
+    devs += "\n" + names[i];
+    if ((int)i < toCount) {
+      toDevs += "\n" + names[i];
+    }
   }
   std::string chans = "\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n16";
   if (draft.from > (int)names.size()) {
     draft.from = 0;  // a device that went
   }
-  if (draft.to > (int)names.size() + 1) {
+  if (draft.to > toCount + 1) {
     draft.to = 0;
   }
 
@@ -323,8 +329,8 @@ void ui::mapAddPage(lv_obj_t* page) {
   }
 
   label(body, "Then", &lv_font_montserrat_12, t.accent);
-  pick(body, "To", "The others" + devs + "\nNowhere (drop)", &draft.to);
-  if (draft.to != (int)names.size() + 1) {
+  pick(body, "To", "The others" + toDevs + "\nNowhere (drop)", &draft.to);
+  if (draft.to != toCount + 1) {
     pick(body, "Channel", "The same" + chans, &draft.toCh);
     bool notes = draft.what <= ABOVE;
     if (notes) {

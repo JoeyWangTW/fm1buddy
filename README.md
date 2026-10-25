@@ -11,11 +11,15 @@ All without a computer/phone/etc:
 - MIDI-routing: Bluetooth & USB devices pass notes, clock & controls to each other, or map them with rules in `midimap.txt` on the SD card (say, several controllers each onto their own FM-1 channel). Add and delete rules by touch, split a keyboard at any key, transpose, and set or scale velocity.
 - MIDI clock: lead at a tempo (tap tempo, start/stop) or follow a device's clock, with a light on each beat
 - Arpeggiator (up, down, up-down, random, as played; 1/4 to 1/32; up to 4 octaves; hold) and chord memory, for any controller (the FM-1's own notes are left alone)
+- Touchscreen MIDI controller: a two-finger X/Y pad (each finger sends 2 CCs, and can play notes on a scale) and 16 velocity-sensitive pads. It's a controller like any other, so mapping rules, clock, arp and chords work on it
+- Choose what it starts on: firmware manager, MIDI hub, mapper, or touch controller
+- USB MIDI for a computer: plugged straight into one, it's a class-compliant USB MIDI device (Settings > On a computer), so the touch controller, clock and Bluetooth MIDI devices reach your DAW, and the DAW can play them
 - Warns before you install firmware with no backup of the FM-1 on the SD card, with a button to make one
 - Sample-management (folders of WAV to its sample-banks, and back)
 - Act as USB disk (to manage files on SD)
 - MIDI-out, turn FM1 into a sequencer (on supported firmware, like [fomajam](https://github.com/konsumer/fomajam))
 - FM1 Recover: write a firmware or backup to an FM-1 that won't start, like [FM-1-transporter](https://github.com/kurogedelic/FM-1-transporter) with no wiring needed (when people say "use RP2040"). Not tested on a real FM-1 yet
+- Automation options, great for LLM development: switch it into USB MIDI mode from the serial console (`tools/s3.py usbmidi`), and back with a "magic" SysEx message (`tools/s3.py serial`), so tests can run on the real thing.
 
 It should be useful for most firmware, depending on what it supports, but it has some extra stuff that is specific to [fomajam](https://github.com/konsumer/fomajam):
 
@@ -63,7 +67,8 @@ pio run -e sim && .pio/build/sim/program --fm1 --keys
 ```
 
 `tools/unit-test.sh` runs the tests of the MIDI mapping's rules (`test/`). `--clock` gives the simulator's keyboard
-MIDI clock to follow.
+MIDI clock to follow; `press X Y`, `release`, `finger2 X Y` and `lift2` in a script hold fingers down, for the touch
+controller.
 
 `tools/install-test.sh` installs a package on the pretend FM-1, cleanly and with faults (lost and repeated requests,
 garbled answers, unplugged while writing), and checks it ends up exactly as the package.
@@ -71,8 +76,10 @@ garbled answers, unplugged while writing), and checks it ends up exactly as the 
 Each install on the board writes what went between it and the FM-1 to `fm1buddy/installs/N.txt` on the SD card (the
 last 10 are kept): send one along with a report of an install gone wrong.
 
-`tools/s3.py` (with `~/.platformio/penv/bin/python`) does the same on the board: `shot FILE`, `tap X Y`, `log` (what it
-logged on the hub, also in `fm1buddy/log.txt` on its SD card), and `host` (the USB host for 20 s).
+`tools/s3.py` (with `~/.platformio/penv/bin/python`) does the same on the board: `shot FILE`, `tap X Y`, `drag X1 Y1 X2 Y2`, `log` (what it
+logged on the hub, also in `fm1buddy/log.txt` on its SD card), `host` (the USB host for 20 s), and `usbmidi` / `serial`
+(it restarts as a USB MIDI device for the computer, and back: `serial` sends it a SysEx of its own,
+`F0 7D 66 6D 31 62 01 F7`, and needs `pip install python-rtmidi`), to test USB MIDI from a script.
 
 ```
 src/app/   the app (LVGL 9): pages, the Hub's list, MIDI between devices, the FM-1's update protocol, sounds (SysEx),

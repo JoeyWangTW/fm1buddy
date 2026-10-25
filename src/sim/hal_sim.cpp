@@ -292,3 +292,18 @@ bool hal::storageCommand(const uint8_t* cdb, uint8_t cdbLen, bool in, uint8_t* b
                          uint32_t) {
   return fake::storage(cdb, cdbLen, in, buf, len, got);
 }
+
+// ------------------------------------------------------------------------------------ USB MIDI for a computer ---
+// (there's no computer on a pretend USB port: only the choice is kept)
+bool hal::computerMidi() {
+  bool on = false;
+  return hal::load("computer", &on, 1) && on;
+}
+
+void hal::computerMidiSet(bool on) {
+  hal::save("computer", &on, 1);
+}
+
+bool hal::onComputer() {
+  return false;
+}

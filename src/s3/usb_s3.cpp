@@ -275,6 +275,9 @@ static uint32_t usbOut(int d, const uint8_t* p, uint32_t n) {
 }
 
 uint32_t hal::midiOut(int d, const uint8_t* p, uint32_t n) {
+  if (d == 0 && board::computerOn()) {
+    return board::computerOut(p, n);  // the computer (USB MIDI for it, instead of the host)
+  }
   return d < MIDI_USB ? usbOut(d, p, n) : board::bleOut(d, p, n);
 }
 

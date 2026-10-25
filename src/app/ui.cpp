@@ -291,6 +291,8 @@ void ui::go(Builder b) {
   current = b;
   fullscreen(false);
   lv_obj_clean(pageObj);
+  lv_obj_set_style_pad_all(pageObj, 6, 0);  // (a page may change them: the touch controller)
+  lv_obj_set_style_pad_row(pageObj, 4, 0);
   lv_obj_scroll_to_y(pageObj, 0, LV_ANIM_OFF);
   b(pageObj);
 }
@@ -402,6 +404,14 @@ static void watch(lv_timer_t*) {
   railStatus();
 }
 
+const char* const ui::START_NAMES[STARTS] = {"Firmware", "MIDI", "Mapping", "Touch controller", "Sounds"};
+
+int ui::startPage() {
+  uint8_t s = 0;
+  hal::load("start", &s, 1);
+  return s < STARTS ? s : 0;
+}
+
 void ui::rebuild() {
   lv_async_call(
       [](void*) {
@@ -431,7 +441,14 @@ void ui::begin() {
   catalog::scanSd();
   setTheme(lv_display_get_default());
   build();
-  go(hal::diskMode() ? diskPage : hal::recoveryMode() ? recoverPage
-                                                      : firmwarePage);
+  if (hal::diskMode() || hal::recoveryMode()) {
+    go(hal::diskMode() ? diskPage : recoverPage);
+  } else {
+    midi::mount(MIDI_TOUCH, 0, 0, "Touch");  // the touchscreen, as a controller that's always there
+    static const Tab tabs[STARTS] = {FIRMWARE, MIDI, MIDI, MIDI, SOUNDS};
+    static const Builder pages[STARTS] = {firmwarePage, midiPage, mapPage, touchPage, soundsPage};
+    int s = startPage();
+    go(tabs[s], pages[s]);
+  }
   lv_timer_create(watch, 100, 0);
 }

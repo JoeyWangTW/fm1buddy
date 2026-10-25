@@ -73,6 +73,13 @@ bool bleChanged();       // the list changed (once)
 void bleHold(bool on);   // Bluetooth stops for a while (an FM-1 install), and comes back as it was
 void bleAllow(bool on);  // it runs only while MIDI routing is on (midi.h route)
 
+// USB MIDI for a computer: with a computer on the USB-C port at power-on, the port is its serial port (for flashing
+// and logs), or, with this chosen, a USB MIDI device ("fm1buddy"): the computer is then device 0 in MIDI routing,
+// "Computer". Set: kept, and if a computer is on the port, the board restarts to take it up
+bool computerMidi();
+void computerMidiSet(bool on);
+bool onComputer();  // a computer is on the port now (as its serial port, or USB MIDI)
+
 // USB disk: the SD card as a USB drive for a computer on the USB-C port, instead of the hub. A mode the board restarts
 // into, and out of (diskModeSet; the simulator only pretends): in it, sd() is 0 (nothing here reads or writes the
 // card) and the USB host doesn't run
@@ -96,6 +103,14 @@ enum KeyState { KEY_IDLE,      // not started
                 KEY_ANSWERED,  // it took the key: its boot loader is starting
                 KEY_HOST };    // the USB host is up, for its boot loader
 int keyState();
+
+// the touchscreen's fingers now (up to 2), for the touch controller: where (screen pixels), which finger (it keeps
+// its id while it stays down), and how hard if the panel says (weight, area: 0 if it doesn't). From the UI's thread
+struct Finger {
+  int16_t x, y;
+  uint8_t id, weight, area;
+};
+int fingers(Finger* out, int max);
 
 // run fn on a thread of its own (on the board: with that much stack, at that priority; 1 is a job's)
 void spawn(void (*fn)(void*), void* arg, uint32_t stack = 16384, int priority = 1);

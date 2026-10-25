@@ -34,35 +34,74 @@ static void touchBegin() {
   Wire.begin(TOUCH_SDA, TOUCH_SCL, 400000);
 }
 
-// a tap from the serial console, until then
-static int16_t tapX, tapY;
-static uint32_t tapUntil;
+// a tap from the serial console, until then; or a drag, from (tapX, tapY) to (toX, toY) over 300 ms from dragAt
+static int16_t tapX, tapY, toX, toY;
+static uint32_t tapUntil, dragAt;
+
+// the fingers last read (both of them: the touch controller's), and when they were read
+static hal::Finger seen[2];
+static int nSeen;
+static uint32_t seenAt;
+
+// the panel's points: TD_STATUS, then per point XH (event in the top 2 bits) XL YH (its id in the top 4) YL, WEIGHT,
+// MISC (area in the top 4)
+static void readFingers() {
+  if (millis() == seenAt) {
+    return;  // (read once a millisecond at most: LVGL and the controller both ask)
+  }
+  seenAt = millis();
+  uint8_t r[13];
+  nSeen = 0;
+  Wire.beginTransmission(FT6336);
+  Wire.write(0x02);
+  if (Wire.endTransmission(false) || Wire.requestFrom(FT6336, 13) != 13) {
+    return;
+  }
+  for (uint8_t& b : r) {
+    b = Wire.read();
+  }
+  uint8_t n = r[0] & 0x0F;
+  for (int i = 0; i < n && i < 2; i++) {
+    const uint8_t* p = r + 1 + i * 6;
+    if (p[0] >> 6 == 1) {
+      continue;  // lifted
+    }
+    // the panel is portrait: turned as the screen is (rotation 1)
+    int px = (p[0] & 0x0F) << 8 | p[1], py = (p[2] & 0x0F) << 8 | p[3];
+    hal::Finger& f = seen[nSeen++];
+    f.x = (int16_t)constrain(py, 0, W - 1);
+    f.y = (int16_t)constrain(H - 1 - px, 0, H - 1);
+    f.id = p[2] >> 4;
+    f.weight = p[4];
+    f.area = p[5] >> 4;
+  }
+}
+
+int hal::fingers(Finger* out, int max) {
+  readFingers();
+  int n = nSeen < max ? nSeen : max;
+  for (int i = 0; i < n; i++) {
+    out[i] = seen[i];
+  }
+  return n;
+}
 
 static void readTouch(lv_indev_t*, lv_indev_data_t* data) {
   static int16_t lx, ly;
   if (tapUntil && (int32_t)(tapUntil - millis()) > 0) {
-    data->point.x = tapX;
-    data->point.y = tapY;
+    uint32_t k = dragAt ? millis() - dragAt : 0;  // a drag: along the way (held still at its end, then up)
+    k = k > 300 ? 300 : k;
+    data->point.x = (int16_t)(tapX + (toX - tapX) * (int32_t)k / 300);
+    data->point.y = (int16_t)(tapY + (toY - tapY) * (int32_t)k / 300);
     data->state = LV_INDEV_STATE_PRESSED;
     return;
   }
   tapUntil = 0;
-  uint8_t r[5];  // TD_STATUS, then the first point: XH XL YH YL
-  data->state = LV_INDEV_STATE_RELEASED;
-  Wire.beginTransmission(FT6336);
-  Wire.write(0x02);
-  if (!Wire.endTransmission(false) && Wire.requestFrom(FT6336, 5) == 5) {
-    for (uint8_t& b : r) {
-      b = Wire.read();
-    }
-    uint8_t n = r[0] & 0x0F;
-    if (n >= 1 && n <= 2) {
-      // the panel is portrait: turned as the screen is (rotation 1)
-      int px = (r[1] & 0x0F) << 8 | r[2], py = (r[3] & 0x0F) << 8 | r[4];
-      lx = constrain(py, 0, W - 1);
-      ly = constrain(H - 1 - px, 0, H - 1);
-      data->state = LV_INDEV_STATE_PRESSED;
-    }
+  readFingers();
+  data->state = nSeen ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
+  if (nSeen) {
+    lx = seen[0].x;
+    ly = seen[0].y;
   }
   data->point.x = lx;
   data->point.y = ly;
@@ -104,7 +143,8 @@ void setup() {
 }
 
 // the serial console (tools/s3.py): "shot" sends the screen (SHOT w h, then w*h RGB565 pixels, little-endian),
-// "tap x y" touches it for a moment, "log" prints the SD card's log, "host" restarts as the USB host for 20 s
+// "tap x y" touches it for a moment, "drag x1 y1 x2 y2" slides a finger across it, "log" prints the SD card's log, "host" restarts as the USB host for 20 s, "usbmidi" restarts as USB MIDI for the
+// computer (until it sends the SysEx that brings the serial port back: computer_s3.cpp)
 static void console() {
   static char line[32];
   static uint8_t n;
@@ -119,11 +159,13 @@ static void console() {
     }
     line[n] = 0;
     n = 0;
-    int x, y;
+    int x, y, x2, y2;
     if (!strcmp(line, "log")) {
       board::printLog();
     } else if (!strcmp(line, "host")) {
       board::hostTestStart();
+    } else if (!strcmp(line, "usbmidi")) {
+      hal::computerMidiSet(true);  // (restarts as USB MIDI for this computer)
     } else if (!strcmp(line, "shot")) {
       lv_draw_buf_t* d = lv_snapshot_take(lv_screen_active(), LV_COLOR_FORMAT_RGB565);
       if (d) {
@@ -136,9 +178,14 @@ static void console() {
       } else {
         Serial.println("NOSHOT");
       }
+    } else if (sscanf(line, "drag %d %d %d %d", &x, &y, &x2, &y2) == 4) {
+      tapX = x, tapY = y, toX = x2, toY = y2;
+      dragAt = millis();
+      tapUntil = dragAt + 400;
     } else if (sscanf(line, "tap %d %d", &x, &y) == 2) {
       tapX = x;
       tapY = y;
+      dragAt = 0;
       tapUntil = millis() + 80;
     }
   }
