@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <map>
 #include <string>
 #include <thread>
 #include <vector>
@@ -12,6 +13,7 @@
 #include "fm1.h"
 #include "hal.h"
 #include "midi.h"
+#include "sloopfmt.h"
 
 #define FM1 0  // the slots they're in
 #define KEYS 1
@@ -40,6 +42,7 @@ static struct {
   std::vector<bool> got;
   // fomajam: its song (a version 9 one is 11914 bytes, starting with 9 and the tempo), its kits, and one coming in
   bool fomajam, playing;
+  bool sloop;  // it runs SLOOP (its editor protocol: sloopAnswer)
   std::vector<uint8_t> song, kits, in;
   uint32_t inTotal, inGot;
 } f;
@@ -381,7 +384,184 @@ static bool share(const uint8_t* b, uint32_t n) {
 
 void fake::play() {
   f.playing = !f.playing;
-  hal::log("fake fomajam: %s", f.playing ? "playing" : "stopped");
+  hal::log("fake %s: %s", f.sloop ? "sloop" : "fomajam", f.playing ? "playing" : "stopped");
+}
+
+// -------------------------------------------------------------------------------------------- SLOOP ---
+// SLOOP 2.8's editor protocol (sloop.h), as much as fm1buddy uses: INFO, its backup objects (BK_LIST, BK_GET,
+// BK_PUT) and its sample slots (SMP_*). Its objects: made up, each with the magic SLOOP checks
+static std::map<int, std::vector<uint8_t>> sl;  // id -> object (0 bytes: empty)
+static struct {
+  int id = -1;
+  uint32_t len, crc;
+  std::vector<uint8_t> buf;
+} stage;
+static std::vector<uint8_t> slotStage;  // a sample slot coming in (SMP_BEGIN .. SMP_END)
+static int slotStageK = -1;
+
+static std::vector<uint8_t> made(const char* magic, uint32_t n, int seed) {
+  std::vector<uint8_t> d(n);
+  for (uint32_t i = 0; i < n; i++) {
+    d[i] = (uint8_t)(i * 31 + seed * 7 + i / 97);
+  }
+  memcpy(d.data(), magic, 4);
+  return d;
+}
+
+static void sloopInit() {
+  sl[0] = made("6NUF", 3816, 0);  // the working project ("FUN6")
+  sl[1] = made("3REP", 120, 1);   // the settings ("PER3")
+  sl[2] = made("6NUF", 3816, 2);  // project A
+  sl[3] = {};
+  sl[4] = made("6NUF", 3816, 4);  // project C
+  sl[5] = {};
+  sl[6] = made("1BPU", 3088, 6);  // the user preset banks
+  sl[7] = made("1BPU", 3088, 7);
+  // USR1: a slot made as fm1buddy makes them, of a little tone
+  std::vector<sloopfmt::Zone> z(1);
+  z[0].root = 60;
+  for (int i = 0; i < 8000; i++) {
+    z[0].samples.push_back((int16_t)(sin(i * 2 * M_PI * 262 / SLOT_RATE) * 20000));
+  }
+  std::vector<uint8_t> hdr, data;
+  std::string why;
+  sloopfmt::userSlot("TONE", z, hdr, data, why);
+  hdr.resize(SLOT_DATA_OFF, 0);
+  hdr.insert(hdr.end(), data.begin(), data.end());
+  sl[32] = hdr;
+  sl[33] = sl[34] = sl[35] = {};
+}
+
+static void sloopReply(uint8_t cmd, const std::vector<uint8_t>& args) {
+  std::vector<uint8_t> m = {0xF0, 0x7D, 0x46, 0x4C, cmd};
+  m.insert(m.end(), args.begin(), args.end());
+  m.push_back(0xF7);
+  sendSysex(FM1, m.data(), (uint32_t)m.size());
+}
+
+static bool sloopAnswer(const uint8_t* b, uint32_t n) {
+  if (n < 6 || b[1] != 0x7D || b[2] != 0x46 || b[3] != 0x4C) {
+    return false;
+  }
+  if (sl.empty()) {
+    sloopInit();
+  }
+  uint8_t cmd = b[4];
+  const uint8_t* a = b + 5;
+  uint32_t an = n - 6;
+  std::vector<uint8_t> r;
+  if (cmd == 1) {  // INFO: version, NENGINES, P_COUNT, G_COUNT, NSTEP, P_E0, the engines, NTRK, protocol
+    const char* v = "FELUCCA SLOOP 2.8";
+    r.insert(r.end(), v, v + strlen(v) + 1);
+    r.insert(r.end(), {11, 71, 45, 64, 63});
+    for (int e = 0; e < 11; e++) {
+      std::string name = "ENG" + std::to_string(e);
+      r.insert(r.end(), name.begin(), name.end() + 1);
+    }
+    r.insert(r.end(), {4, 11});
+  } else if (cmd == 34) {  // BK_LIST
+    r = {0, (uint8_t)sl.size()};
+    for (auto& [id, d] : sl) {
+      r.push_back((uint8_t)id);
+      sloopfmt::u35((uint32_t)d.size(), r);
+      sloopfmt::u35(sloopfmt::crc32(d.data(), d.size()), r);
+    }
+  } else if (cmd == 35 && an >= 8) {  // BK_GET: id, offset, count
+    int id = a[0];
+    uint32_t off = sloopfmt::u35(a + 1), cnt = a[6] | a[7] << 7;
+    auto it = sl.find(id);
+    uint8_t rc = it == sl.end() || off + cnt > it->second.size() || !cnt || cnt > 256 ? 1 : 0;
+    r = {(uint8_t)id, rc};
+    sloopfmt::u35(off, r);
+    r.insert(r.end(), {(uint8_t)(cnt & 0x7F), (uint8_t)(cnt >> 7)});
+    if (!rc) {
+      sloopfmt::pack7(it->second.data() + off, cnt, r);
+    }
+  } else if (cmd == 36 && an >= 2) {  // BK_PUT: begin, data, commit, abort
+    int op = a[0], id = a[1];
+    uint8_t rc = 0;
+    if (op == 0 && an >= 12) {
+      stage.id = id, stage.len = sloopfmt::u35(a + 2), stage.crc = sloopfmt::u35(a + 7);
+      stage.buf.clear();
+      rc = id > 11 ? 5 : 0;
+    } else if (op == 1 && an >= 7) {
+      if (stage.id != id) {
+        rc = 5;
+      } else {
+        std::vector<uint8_t> d = sloopfmt::unpack7(a + 7, an - 7);
+        rc = sloopfmt::u35(a + 2) != stage.buf.size() || stage.buf.size() + d.size() > stage.len ? 1 : 0;
+        stage.buf.insert(stage.buf.end(), d.begin(), d.end());
+      }
+    } else if (op == 2) {
+      if (stage.id != id) {
+        rc = 5;
+      } else if (stage.buf.size() != stage.len || sloopfmt::crc32(stage.buf.data(), stage.buf.size()) != stage.crc) {
+        rc = 2;
+      } else if (f.playing && (id <= 7)) {
+        rc = 3;
+      } else {
+        sl[id] = stage.buf;
+        hal::log("fake sloop: %d restored (%u bytes)", id, (unsigned)stage.len);
+      }
+      stage.id = -1;
+    }
+    r = {(uint8_t)op, (uint8_t)id, rc};
+  } else if (cmd == 15) {  // SMP_INFO: slots, KiB a slot, then each one's zones, name, KiB
+    r = {4, 80};
+    for (int k = 0; k < 4; k++) {
+      const auto& d = sl[32 + k];
+      r.push_back(d.size() >= 8 ? d[6] : 0);
+      for (int i = 8; i < 16 && d.size() >= 16 && d[i]; i++) {
+        r.push_back(d[i]);
+      }
+      r.push_back(0);
+      r.push_back((uint8_t)((d.size() + 1023) / 1024));
+    }
+  } else if (cmd == 11 && an >= 1) {  // SMP_BEGIN
+    slotStageK = a[0];
+    slotStage.assign(SLOT_DATA_OFF, 0);
+    sl[32 + a[0]] = {};
+    r = {a[0], (uint8_t)(f.playing ? 3 : 0)};
+  } else if (cmd == 12 && an >= 4) {  // SMP_WRITE: slot, offset (3 x 7 bit), data
+    uint32_t off = a[1] | a[2] << 7 | a[3] << 14;
+    std::vector<uint8_t> d = sloopfmt::unpack7(a + 4, an - 4);
+    uint8_t rc = slotStageK != a[0] ? 4 : off != slotStage.size() || off % 256 ? 1
+                                                                               : 0;
+    if (!rc) {
+      slotStage.insert(slotStage.end(), d.begin(), d.end());
+    }
+    r = {a[0], a[1], a[2], a[3], rc};
+  } else if (cmd == 13 && an >= 1) {  // SMP_END: slot, header
+    std::vector<uint8_t> h = sloopfmt::unpack7(a + 1, an - 1);
+    uint8_t rc = 0;
+    if (h.size() < SLOT_HDR_LEN || memcmp(h.data(), "FSMP", 4)) {
+      rc = 2;
+    } else {
+      uint32_t len = h[16] | h[17] << 8 | h[18] << 16 | (uint32_t)h[19] << 24;
+      uint32_t crc = h[20] | h[21] << 8 | h[22] << 16 | (uint32_t)h[23] << 24;
+      if (len != slotStage.size() - SLOT_DATA_OFF ||
+          sloopfmt::crc32(slotStage.data() + SLOT_DATA_OFF, len) != crc) {
+        rc = 3;
+      } else {
+        memcpy(slotStage.data(), h.data(), SLOT_HDR_LEN);
+        sl[32 + a[0]] = slotStage;
+        hal::log("fake sloop: USR%d loaded (%u zones, %u bytes)", a[0] + 1, h[6], (unsigned)len);
+      }
+    }
+    slotStageK = -1;
+    r = {a[0], rc};
+  } else if (cmd == 14 && an >= 1) {  // SMP_ERASE
+    sl[32 + a[0]] = {};
+    r = {a[0], 0};
+  } else {
+    return true;  // (what it doesn't know: no reply)
+  }
+  sloopReply(cmd, r);
+  return true;
+}
+
+void fake::sloopMode(bool on) {
+  f.sloop = on;
 }
 
 // ------------------------------------------------------------------------------- its boot loader ---
@@ -547,7 +727,8 @@ static void fromHost(const uint8_t* b, uint32_t n) {
   } else if (f.state == decltype(f.state)::RUN && n == sizeof KEY && !memcmp(b, KEY, n)) {
     ubootEnter();
   } else if (f.state == decltype(f.state)::RUN && f.fomajam && share(b, n)) {
-  } else if (f.state == decltype(f.state)::RUN && !f.fomajam && fm1::unframe(b, n, 0x23, req, sizeof req) == 8 &&
+  } else if (f.state == decltype(f.state)::RUN && f.sloop && sloopAnswer(b, n)) {
+  } else if (f.state == decltype(f.state)::RUN && !f.fomajam && !f.sloop && fm1::unframe(b, n, 0x23, req, sizeof req) == 8 &&
              req[0] == 5) {
     // the stock firmware's read: its current voice
     uint8_t reply[8 + 155], wire[256];
@@ -734,7 +915,7 @@ static void run(bool fm1, bool keys) {
       f.state = (decltype(f.state))f.next;
       midi::mount(FM1, 0x1209, 0x0001,
                   f.state == decltype(f.state)::LOADER ? "ota-FM-1"
-                  : f.fomajam                          ? "Felucca"
+                  : f.fomajam || f.sloop               ? "Felucca"
                                                        : "FM-1");
     }
     if (f.waiting && now - f.askedAt > 1000) {

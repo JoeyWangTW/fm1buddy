@@ -14,6 +14,7 @@
 #include "fm1.h"
 #include "midi.h"
 #include "settings.h"
+#include "sloop.h"
 #include "uboot.h"
 
 namespace jobs {
@@ -41,7 +42,7 @@ static void progress(uint32_t d, uint32_t t) {
   total = t;
 }
 
-static const char* NAMES[] = {"none", "hub", "download", "scan", "join", "install", "probe", "send", "voice", "keep", "restore", "export", "backup", "prepare", "recover"};
+static const char* NAMES[] = {"none", "hub", "download", "scan", "join", "install", "probe", "send", "voice", "keep", "restore", "export", "backup", "prepare", "recover", "sloop backup", "sloop restore", "sloop project", "sloop samples"};
 
 static bool start(Kind k, void (*fn)(void*)) {
   if (running) {
@@ -552,7 +553,8 @@ static void recoverJob(void*) {
   std::string from = recovering();
   std::vector<uint8_t> want, now, back;
   step = GETTING_READY;
-  const char* e = !hal::sd() ? "No SD card." : from.empty() ? "Nothing was chosen to go on it." : image(from, want);
+  const char* e = !hal::sd() ? "No SD card." : from.empty() ? "Nothing was chosen to go on it."
+                                                            : image(from, want);
   if (e) {
     error = e;
     return finish(false);
@@ -713,6 +715,65 @@ bool jobs::join(const char* s, const char* p) {
   return start(JOIN, joinJob);
 }
 
+// ------------------------------------------------------------------------------------------- SLOOP ---
+static std::string doing;  // WORKING: what ("Backing up")
+static std::string sloopFile;
+static int sloopFrom, sloopTo;
+
+static void sloopJob(void*) {
+  step = WORKING;
+  const char* e = 0;
+  saved.clear();
+  if (kind == SLOOP_BACKUP) {
+    doing = "Backing it up";
+    sloop::Info info;
+    e = sloop::info(device, info);
+    if (!e) {
+      e = sloop::backup(device, info, saved, progress);
+    }
+  } else if (kind == SLOOP_RESTORE) {
+    doing = "Backing it up, then restoring";
+    e = sloop::restore(device, sloopFile, saved, progress);
+  } else if (kind == SLOOP_PROJECT) {
+    doing = "Loading the project";
+    e = sloop::loadProject(device, sloopFile, sloopFrom, sloopTo, progress);
+  } else {
+    doing = "Loading the samples";
+    e = sloop::loadSamples(device, sloopFile, sloopTo, progress);
+  }
+  if (e) {
+    error = e;
+  }
+  finish(!e);
+}
+
+static bool sloopStart(Kind k, int d, const std::string& file, int from, int to) {
+  if (running) {
+    return false;
+  }
+  device = d;
+  sloopFile = file;
+  sloopFrom = from;
+  sloopTo = to;
+  return start(k, sloopJob);
+}
+
+bool jobs::sloopBackup(int d) {
+  return sloopStart(SLOOP_BACKUP, d, "", 0, 0);
+}
+
+bool jobs::sloopRestore(int d, const std::string& file) {
+  return sloopStart(SLOOP_RESTORE, d, file, 0, 0);
+}
+
+bool jobs::sloopProject(int d, const std::string& file, int from, int to) {
+  return sloopStart(SLOOP_PROJECT, d, file, from, to);
+}
+
+bool jobs::sloopSamples(int d, const std::string& source, int slot) {
+  return sloopStart(SLOOP_SAMPLES, d, source, 0, slot);
+}
+
 std::string jobs::status() {
   switch ((int)step) {
     case JOINING:
@@ -786,6 +847,10 @@ std::string jobs::status() {
     case CHECKING_FLASH: {
       uint32_t t = total, d = done;
       return "Checking it " + std::to_string(t ? (unsigned long long)d * 100 / t : 0) + "%...";
+    }
+    case WORKING: {
+      uint32_t t = total, d = done;
+      return doing + (t ? " " + std::to_string((unsigned long long)d * 100 / t) + "%..." : std::string("..."));
     }
     case GETTING: {
       uint32_t t = total, d = done;
