@@ -133,7 +133,7 @@ void board::begin() {
   for (uint32_t t = millis(); !test && millis() - t < 1500 && !computer; delay(10)) {
     computer = HWCDC::isPlugged();
   }
-  if (!computer && sdOk) {
+  if ((!computer || hal::computerMidi()) && sdOk) {  // (USB MIDI for a computer: no serial port either)
     mkdir("/sdcard/fm1buddy", 0777);
     if (FILE* f = fopen(LOG_FILE, "w")) {
       fclose(f);
@@ -144,7 +144,7 @@ void board::begin() {
     hostTestUntil = millis() + 20000;
   }
   hal::log("fm1buddy: sd %s, usb %s%s, last reset: %d", sdOk ? "mounted" : "none",
-           computer ? "serial (a computer)" : "host", test ? " (a test: 20 s)" : "", (int)esp_reset_reason());
+           computer ? (hal::computerMidi() ? "USB MIDI (a computer)" : "serial (a computer)") : "host", test ? " (a test: 20 s)" : "", (int)esp_reset_reason());
 }
 
 // the USB port back to the serial port: a restart (esp_restart) keeps the host's choice, and a computer on it
@@ -158,6 +158,13 @@ void board::usbBegin() {
     esp_register_shutdown_handler(phyToSerial);
     Serial.end();
     diskBegin();
+    return;
+  }
+  if (computer && hal::computerMidi()) {
+    esp_register_shutdown_handler(phyToSerial);
+    hal::log("usb: serial off, USB MIDI for the computer");
+    Serial.end();
+    computerBegin();
     return;
   }
   if (computer) {
@@ -218,6 +225,24 @@ void hal::recoveryModeSet(bool on) {
   hal::log("usb: %s recovery mode: restarting", on ? "into" : "out of");
   flushLog();
   esp_restart();
+}
+
+bool hal::computerMidi() {
+  bool on = false;
+  return hal::load("computer", &on, 1) && on;
+}
+
+void hal::computerMidiSet(bool on) {
+  hal::save("computer", &on, 1);
+  if (computer) {
+    hal::log("usb: %s for the computer: restarting", on ? "USB MIDI" : "the serial port");
+    flushLog();
+    esp_restart();
+  }
+}
+
+bool hal::onComputer() {
+  return computer;
 }
 
 void hal::diskModeSet(bool on) {

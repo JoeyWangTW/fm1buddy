@@ -13,6 +13,7 @@ All without a computer/phone/etc:
 - Arpeggiator (up, down, up-down, random, as played; 1/4 to 1/32; up to 4 octaves; hold) and chord memory, for any controller (the FM-1's own notes are left alone)
 - Touchscreen MIDI controller: a two-finger X/Y pad (each finger sends 2 CCs, and can play notes on a scale) and 16 velocity-sensitive pads. It's a controller like any other, so mapping rules, clock, arp and chords work on it
 - Choose what it starts on: firmware manager, MIDI hub, mapper, or touch controller
+- USB MIDI for a computer: plugged straight into one, it's a class-compliant USB MIDI device (Settings > On a computer), so the touch controller, clock and Bluetooth MIDI devices reach your DAW, and the DAW can play them
 - Warns before you install firmware with no backup of the FM-1 on the SD card, with a button to make one
 - Sample-management (folders of WAV to its sample-banks, and back)
 - Act as USB disk (to manage files on SD)
@@ -74,7 +75,7 @@ garbled answers, unplugged while writing), and checks it ends up exactly as the 
 Each install on the board writes what went between it and the FM-1 to `fm1buddy/installs/N.txt` on the SD card (the
 last 10 are kept): send one along with a report of an install gone wrong.
 
-`tools/s3.py` (with `~/.platformio/penv/bin/python`) does the same on the board: `shot FILE`, `tap X Y`, `log` (what it
+`tools/s3.py` (with `~/.platformio/penv/bin/python`) does the same on the board: `shot FILE`, `tap X Y`, `drag X1 Y1 X2 Y2`, `log` (what it
 logged on the hub, also in `fm1buddy/log.txt` on its SD card), and `host` (the USB host for 20 s).
 
 ```

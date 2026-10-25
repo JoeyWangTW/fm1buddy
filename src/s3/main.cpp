@@ -34,9 +34,9 @@ static void touchBegin() {
   Wire.begin(TOUCH_SDA, TOUCH_SCL, 400000);
 }
 
-// a tap from the serial console, until then
-static int16_t tapX, tapY;
-static uint32_t tapUntil;
+// a tap from the serial console, until then; or a drag, from (tapX, tapY) to (toX, toY) over 300 ms from dragAt
+static int16_t tapX, tapY, toX, toY;
+static uint32_t tapUntil, dragAt;
 
 // the fingers last read (both of them: the touch controller's), and when they were read
 static hal::Finger seen[2];
@@ -89,8 +89,10 @@ int hal::fingers(Finger* out, int max) {
 static void readTouch(lv_indev_t*, lv_indev_data_t* data) {
   static int16_t lx, ly;
   if (tapUntil && (int32_t)(tapUntil - millis()) > 0) {
-    data->point.x = tapX;
-    data->point.y = tapY;
+    uint32_t k = dragAt ? millis() - dragAt : 0;  // a drag: along the way (held still at its end, then up)
+    k = k > 300 ? 300 : k;
+    data->point.x = (int16_t)(tapX + (toX - tapX) * (int32_t)k / 300);
+    data->point.y = (int16_t)(tapY + (toY - tapY) * (int32_t)k / 300);
     data->state = LV_INDEV_STATE_PRESSED;
     return;
   }
@@ -141,7 +143,7 @@ void setup() {
 }
 
 // the serial console (tools/s3.py): "shot" sends the screen (SHOT w h, then w*h RGB565 pixels, little-endian),
-// "tap x y" touches it for a moment, "log" prints the SD card's log, "host" restarts as the USB host for 20 s
+// "tap x y" touches it for a moment, "drag x1 y1 x2 y2" slides a finger across it, "log" prints the SD card's log, "host" restarts as the USB host for 20 s
 static void console() {
   static char line[32];
   static uint8_t n;
@@ -156,7 +158,7 @@ static void console() {
     }
     line[n] = 0;
     n = 0;
-    int x, y;
+    int x, y, x2, y2;
     if (!strcmp(line, "log")) {
       board::printLog();
     } else if (!strcmp(line, "host")) {
@@ -173,9 +175,14 @@ static void console() {
       } else {
         Serial.println("NOSHOT");
       }
+    } else if (sscanf(line, "drag %d %d %d %d", &x, &y, &x2, &y2) == 4) {
+      tapX = x, tapY = y, toX = x2, toY = y2;
+      dragAt = millis();
+      tapUntil = dragAt + 400;
     } else if (sscanf(line, "tap %d %d", &x, &y) == 2) {
       tapX = x;
       tapY = y;
+      dragAt = 0;
       tapUntil = millis() + 80;
     }
   }

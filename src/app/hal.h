@@ -73,6 +73,13 @@ bool bleChanged();       // the list changed (once)
 void bleHold(bool on);   // Bluetooth stops for a while (an FM-1 install), and comes back as it was
 void bleAllow(bool on);  // it runs only while MIDI routing is on (midi.h route)
 
+// USB MIDI for a computer: with a computer on the USB-C port at power-on, the port is its serial port (for flashing
+// and logs), or, with this chosen, a USB MIDI device ("fm1buddy"): the computer is then device 0 in MIDI routing,
+// "Computer". Set: kept, and if a computer is on the port, the board restarts to take it up
+bool computerMidi();
+void computerMidiSet(bool on);
+bool onComputer();  // a computer is on the port now (as its serial port, or USB MIDI)
+
 // USB disk: the SD card as a USB drive for a computer on the USB-C port, instead of the hub. A mode the board restarts
 // into, and out of (diskModeSet; the simulator only pretends): in it, sd() is 0 (nothing here reads or writes the
 // card) and the USB host doesn't run
