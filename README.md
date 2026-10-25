@@ -19,7 +19,7 @@ All without a computer/phone/etc:
 - Act as USB disk (to manage files on SD)
 - MIDI-out, turn FM1 into a sequencer (on supported firmware, like [fomajam](https://github.com/konsumer/fomajam))
 - FM1 Recover: write a firmware or backup to an FM-1 that won't start, like [FM-1-transporter](https://github.com/kurogedelic/FM-1-transporter) with no wiring needed (when people say "use RP2040"). Not tested on a real FM-1 yet
-- Automation options: these are great for LLM development. you can send it a "magic message" whcih is sysex, to go into serial/midi mode, so you can automate testing on real thing.
+- Automation options: these are great for LLM development. you can send it a "magic message" which is sysex, to go into serial/midi mode, so you can automate testing on real thing.
 
 It should be useful for most firmware, depending on what it supports, but it has some extra stuff that is specific to [fomajam](https://github.com/konsumer/fomajam):
 
