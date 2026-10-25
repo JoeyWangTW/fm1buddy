@@ -69,7 +69,7 @@ pio run -e sim && .pio/build/sim/program --fm1 --keys
 
 `tools/unit-test.sh` runs the tests of the MIDI mapping's rules and SLOOP's formats (`test/`: a sample slot made from
 .wav files must be the bytes SLOOP's own `tools/sampleio.py` makes). `--sloop` makes the simulator's FM-1 one running
-SLOOP 2.8. `--clock` gives the simulator's keyboard
+SLOOP 2.8. `--theme NAME` shows it in one of the themes (WHITE, NEON, ...), to check a page in all of them. `--clock` gives the simulator's keyboard
 MIDI clock to follow; `press X Y`, `release`, `finger2 X Y` and `lift2` in a script hold fingers down, for the touch
 controller.
 

@@ -1,6 +1,6 @@
 // The app on the desktop: an SDL window twice the screen's size, the mouse for touch.
 //
-//   program [--headless] [--zoom N] [--fm1] [--fomajam] [--sloop] [--faults] [--keys] [--clock] [--install FILE]
+//   program [--headless] [--zoom N] [--theme NAME] [--fm1] [--fomajam] [--sloop] [--faults] [--keys] [--clock] [--install FILE]
 //           [--script "tap 24 70; wait 300; shot a.bmp; quit"]
 //
 // --fm1 puts a pretend FM-1 on the hub (it goes through a whole install), --fomajam makes it one running fomajam (it
@@ -20,6 +20,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <unistd.h>
 
 #include <chrono>
@@ -32,7 +33,10 @@
 #include "fake.h"
 #include "hal.h"
 #include "jobs.h"
+#include "settings.h"
+#include "themes.h"
 #include "ui.h"
+#include "ui_priv.h"
 
 #define W 320
 #define H 240
@@ -125,6 +129,7 @@ static void pump(int ms) {
 
 int main(int argc, char** argv) {
   bool headless = false, fm1 = false, keys = false, faults = false, fomajam = false;
+  const char* themeName = 0;
   int zoom = 2;
   std::string script, install;
   for (int i = 1; i < argc; i++) {
@@ -147,6 +152,8 @@ int main(int argc, char** argv) {
     } else if (!strcmp(argv[i], "--clock")) {
       keys = true;
       fake::keysClock(true);
+    } else if (!strcmp(argv[i], "--theme") && i + 1 < argc) {
+      themeName = argv[++i];
     } else if (!strcmp(argv[i], "--zoom") && i + 1 < argc) {
       zoom = atoi(argv[++i]);
     } else if (!strcmp(argv[i], "--script") && i + 1 < argc) {
@@ -165,6 +172,12 @@ int main(int argc, char** argv) {
   lv_indev_set_read_cb(in, readPointer);
 
   ui::begin();
+  for (int t = 0; themeName && t < THEME_COUNT; t++) {  // (just for this run: not saved)
+    if (!strcasecmp(themeName, THEMES[t].name)) {
+      settings.theme = (uint8_t)t;
+      ui::rebuild();
+    }
+  }
   fake::begin(fm1, keys, faults, fomajam);
 
   SDL_Window* win = 0;
