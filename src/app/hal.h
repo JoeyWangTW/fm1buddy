@@ -97,6 +97,14 @@ enum KeyState { KEY_IDLE,      // not started
                 KEY_HOST };    // the USB host is up, for its boot loader
 int keyState();
 
+// the touchscreen's fingers now (up to 2), for the touch controller: where (screen pixels), which finger (it keeps
+// its id while it stays down), and how hard if the panel says (weight, area: 0 if it doesn't). From the UI's thread
+struct Finger {
+  int16_t x, y;
+  uint8_t id, weight, area;
+};
+int fingers(Finger* out, int max);
+
 // run fn on a thread of its own (on the board: with that much stack, at that priority; 1 is a job's)
 void spawn(void (*fn)(void*), void* arg, uint32_t stack = 16384, int priority = 1);
 }  // namespace hal

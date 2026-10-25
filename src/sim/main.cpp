@@ -9,7 +9,8 @@
 // --install FILE installs /fm1/FILE on the pretend FM-1, again (as a person would) if it doesn't finish, up to 3
 // times, then quits: 0 if it's installed, 1 if not.
 //
-// The script runs after start: tap X Y (screen pixels), drag X1 Y1 X2 Y2, wait MS, shot FILE (a .bmp of the
+// The script runs after start: tap X Y (screen pixels), drag X1 Y1 X2 Y2, press X Y and release (a finger held),
+// finger2 X Y and lift2 (a second finger, for the touch controller), wait MS, shot FILE (a .bmp of the
 // screen), dump (the pretend FM-1 sends a DX7 bank), play (fomajam starts or stops), eject (the
 // computer lets go of the USB disk), quit. The SD card is the
 // folder in FM1_SD (default: sim/sd).
@@ -84,6 +85,24 @@ static struct {
   bool down;
 } mouse, scripted;
 static bool useScript;
+
+// a second finger, from the script (finger2 X Y, lift2): the touch controller's
+static struct {
+  int x, y;
+  bool down;
+} second;
+
+int hal::fingers(Finger* out, int max) {
+  auto& p = useScript ? scripted : mouse;
+  int n = 0;
+  if (p.down && n < max) {
+    out[n++] = {(int16_t)p.x, (int16_t)p.y, 0, 0, 0};
+  }
+  if (second.down && n < max) {
+    out[n++] = {(int16_t)second.x, (int16_t)second.y, 1, 0, 0};
+  }
+  return n;
+}
 
 static void readPointer(lv_indev_t*, lv_indev_data_t* data) {
   auto& p = useScript ? scripted : mouse;
@@ -208,6 +227,18 @@ int main(int argc, char** argv) {
         }
         scripted.down = false;
         pump(60);
+      } else if (cmd == "press" || cmd == "release") {  // finger 1 down (at X Y) and held, or up
+        useScript = true;
+        if (cmd == "press") {
+          c >> scripted.x >> scripted.y;
+        }
+        scripted.down = cmd == "press";
+        pump(30);
+      } else if (cmd == "finger2") {
+        c >> second.x >> second.y;
+        second.down = true;
+      } else if (cmd == "lift2") {
+        second.down = false;
       } else if (cmd == "wait") {
         int ms = 0;
         c >> ms;

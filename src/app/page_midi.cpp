@@ -176,6 +176,7 @@ void ui::midiPage(lv_obj_t* page) {
   }
   char ps[64];
   play::summary(ps, sizeof ps);
+  navRow(body, LV_SYMBOL_KEYBOARD "  Touch controller", "", touchPage, t.dim);
   lv_obj_t* pr = navRow(body, LV_SYMBOL_LOOP "  Clock, arp", ps, playPage, t.dim);
   playDot = label(pr, LV_SYMBOL_BULLET, &lv_font_montserrat_16, t.off);
   lv_obj_move_to_index(playDot, 1);
@@ -188,7 +189,7 @@ void ui::midiPage(lv_obj_t* page) {
     if (!midi::dev(d, v)) {
       continue;
     }
-    n++;
+    n += d != MIDI_TOUCH;
     counts[d] = v.count;
     lv_obj_t* r = listRow(body, 0, 0);
     dots[d] = label(r, LV_SYMBOL_BULLET, &lv_font_montserrat_20, t.off);

@@ -11,6 +11,8 @@ All without a computer/phone/etc:
 - MIDI-routing: Bluetooth & USB devices pass notes, clock & controls to each other, or map them with rules in `midimap.txt` on the SD card (say, several controllers each onto their own FM-1 channel). Add and delete rules by touch, split a keyboard at any key, transpose, and set or scale velocity.
 - MIDI clock: lead at a tempo (tap tempo, start/stop) or follow a device's clock, with a light on each beat
 - Arpeggiator (up, down, up-down, random, as played; 1/4 to 1/32; up to 4 octaves; hold) and chord memory, for any controller (the FM-1's own notes are left alone)
+- Touchscreen MIDI controller: a two-finger X/Y pad (each finger sends 2 CCs, and can play notes on a scale) and 16 velocity-sensitive pads. It's a controller like any other, so mapping rules, clock, arp and chords work on it
+- Choose what it starts on: firmware manager, MIDI hub, mapper, or touch controller
 - Warns before you install firmware with no backup of the FM-1 on the SD card, with a button to make one
 - Sample-management (folders of WAV to its sample-banks, and back)
 - Act as USB disk (to manage files on SD)
@@ -63,7 +65,8 @@ pio run -e sim && .pio/build/sim/program --fm1 --keys
 ```
 
 `tools/unit-test.sh` runs the tests of the MIDI mapping's rules (`test/`). `--clock` gives the simulator's keyboard
-MIDI clock to follow.
+MIDI clock to follow; `press X Y`, `release`, `finger2 X Y` and `lift2` in a script hold fingers down, for the touch
+controller.
 
 `tools/install-test.sh` installs a package on the pretend FM-1, cleanly and with faults (lost and repeated requests,
 garbled answers, unplugged while writing), and checks it ends up exactly as the package.

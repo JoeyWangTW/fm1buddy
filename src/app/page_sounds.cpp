@@ -32,7 +32,7 @@ static void pickDevice() {
     return;
   }
   dev = fm1::current();
-  for (int d = 0; dev < 0 && d < MIDI_DEVS; d++) {
+  for (int d = 0; dev < 0 && d < MIDI_TOUCH; d++) {
     if (midi::dev(d, v)) {
       dev = d;
     }
@@ -242,7 +242,7 @@ static void openFile(lv_event_t* e) {
 
 static void pickChanged(lv_event_t* e) {
   int i = lv_dropdown_get_selected((lv_obj_t*)lv_event_get_target(e));
-  for (int d = 0; d < MIDI_DEVS; d++) {
+  for (int d = 0; d < MIDI_TOUCH; d++) {  // (the touchscreen hears nothing)
     midi::Dev v;
     if (midi::dev(d, v) && !i--) {
       if (recording) {
@@ -340,7 +340,7 @@ void ui::soundsPage(lv_obj_t* page) {
   // the device
   std::string opts;
   int n = 0, at = 0;
-  for (int d = 0; d < MIDI_DEVS; d++) {
+  for (int d = 0; d < MIDI_TOUCH; d++) {  // (the touchscreen hears nothing)
     midi::Dev v;
     if (midi::dev(d, v)) {
       const Fm1Id* id = fm1::known(d);
