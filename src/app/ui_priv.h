@@ -55,14 +55,18 @@ lv_obj_t* chip(lv_obj_t* parent, const char* text, uint32_t color);
 // the pages
 void firmwarePage(lv_obj_t* page);
 void midiPage(lv_obj_t* page);
+void playPage(lv_obj_t* page);    // clock, arpeggiator, chords
+void mapPage(lv_obj_t* page);     // the mapping's rules
+void mapAddPage(lv_obj_t* page);  // a new rule
 void soundsPage(lv_obj_t* page);
 void syxPage(lv_obj_t* page);    // a .syx
 void setupPage(lv_obj_t* page);  // a setup
 void settingsPage(lv_obj_t* page);
 void wifiPage(lv_obj_t* page);
-void backupPage(lv_obj_t* page);     // all of the FM-1's flash to the SD card
-void diskStartPage(lv_obj_t* page);  // USB disk: what it is, and starting it
-void diskPage(lv_obj_t* page);       // USB disk mode itself (all of the screen)
+void backupPage(lv_obj_t* page);        // all of the FM-1's flash to the SD card
+bool hasBackup();                       // a backup of it is on the SD card
+void diskStartPage(lv_obj_t* page);     // USB disk: what it is, and starting it
+void diskPage(lv_obj_t* page);          // USB disk mode itself (all of the screen)
 void recoverStartPage(lv_obj_t* page);  // recovery: what goes on the FM-1, how, and starting it
 void recoverPage(lv_obj_t* page);       // recovery mode itself (all of the screen)
 }  // namespace ui

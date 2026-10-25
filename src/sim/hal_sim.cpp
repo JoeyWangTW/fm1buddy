@@ -278,7 +278,7 @@ bool hal::sha256(const char* path, char hex[65]) {
   return true;
 }
 
-void hal::spawn(void (*fn)(void*), void* arg) {
+void hal::spawn(void (*fn)(void*), void* arg, uint32_t, int) {
   std::thread(fn, arg).detach();
 }
 

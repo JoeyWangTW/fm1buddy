@@ -16,6 +16,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install platformio esptool==4.8.1
+      - run: tools/unit-test.sh
       - run: pio run
       - run: |
           mkdir -p build

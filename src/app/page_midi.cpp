@@ -8,6 +8,7 @@
 #include "hal.h"
 #include "midi.h"
 #include "midimap.h"
+#include "play.h"
 #include "ui_priv.h"
 
 using namespace ui;
@@ -16,6 +17,8 @@ static uint32_t shownSeq;
 static lv_obj_t *dots[MIDI_DEVS], *lasts[MIDI_DEVS];
 static uint32_t counts[MIDI_DEVS], drops[MIDI_DEVS];
 static lv_obj_t* dropLabels[MIDI_DEVS];
+static lv_obj_t* playDot;  // flashes on each beat
+static uint32_t shownBeat, beatAt;
 
 // "note C4  vel 100  ch 1   (20)": the last message, and how many it has sent
 static void lastText(const midi::Dev& v, char* s, int n) {
@@ -44,6 +47,18 @@ static void reloadTapped(lv_event_t*) {
   snprintf(s, sizeof s, "%d mapping rule%s read.", n, n == 1 ? "" : "s");
   toast(why.empty() ? s : why.c_str(), !why.empty());
   go(midiPage);
+}
+
+// a row to tap for another page: a name, what's there now (cut short), and >
+static lv_obj_t* navRow(lv_obj_t* body, const char* name, const char* value, Builder to, uint32_t valueColor) {
+  const Theme& t = theme();
+  lv_obj_t* r = listRow(body, [](lv_event_t* e) { go((Builder)lv_event_get_user_data(e)); }, (void*)to);
+  label(r, name, &lv_font_montserrat_16, t.text);
+  lv_obj_t* v = line(r, value, &lv_font_montserrat_12, valueColor);
+  lv_obj_set_style_text_align(v, LV_TEXT_ALIGN_RIGHT, 0);
+  lv_obj_set_flex_grow(v, 1);
+  label(r, LV_SYMBOL_RIGHT, &lv_font_montserrat_14, t.dim);
+  return r;
 }
 
 static void toggleBoot(lv_event_t* e) {
@@ -92,6 +107,11 @@ static void live() {
   }
   const Theme& t = theme();
   uint32_t now = hal::millis();
+  if (play::beat() != shownBeat) {
+    shownBeat = play::beat();
+    beatAt = now;
+  }
+  lv_obj_set_style_text_color(playDot, color(now - beatAt < 120 ? t.accent : t.off), 0);
   for (int d = 0; d < MIDI_DEVS; d++) {
     midi::Dev v;
     if (!dots[d] || !midi::dev(d, v)) {
@@ -134,23 +154,19 @@ void ui::midiPage(lv_obj_t* page) {
   lv_label_set_long_mode(about, LV_LABEL_LONG_WRAP);
   lv_obj_set_width(about, LV_PCT(100));
 
-  // the mapping: /midimap.txt
+  // the mapping (/midimap.txt), and the clock, arpeggiator and chords
   if (hal::sd()) {
-    lv_obj_t* mr = box(body, LV_FLEX_FLOW_ROW);
-    lv_obj_set_width(mr, LV_PCT(100));
-    lv_obj_set_flex_align(mr, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(mr, 8, 0);
     std::string why = midi::mapProblem();
-    char s[96];
+    char s[64];
     if (rules) {
-      snprintf(s, sizeof s, "Mapping: %d rule%s in " MAP_FILE, rules, rules == 1 ? "" : "s");
+      snprintf(s, sizeof s, "%d rule%s", rules, rules == 1 ? "" : "s");
     } else {
-      snprintf(s, sizeof s, "No mapping: rules go in " MAP_FILE " (it explains how)");
+      snprintf(s, sizeof s, "none");
     }
-    lv_obj_t* ml = label(mr, s, &lv_font_montserrat_12, rules ? t.accent : t.dim);
-    lv_label_set_long_mode(ml, LV_LABEL_LONG_WRAP);
-    lv_obj_set_flex_grow(ml, 1);
-    button(mr, LV_SYMBOL_REFRESH, reloadTapped);
+    lv_obj_t* mr = navRow(body, LV_SYMBOL_EDIT "  Mapping", s, mapPage, rules ? t.accent : t.dim);
+    lv_obj_t* rb = button(mr, LV_SYMBOL_REFRESH, reloadTapped);
+    lv_obj_set_size(rb, 34, 30);
+    lv_obj_move_to_index(rb, 1);
     if (!why.empty()) {
       lv_obj_t* wl = label(body, (MAP_FILE ", " + why + " (that line is left out)").c_str(), &lv_font_montserrat_12,
                            t.knob[0]);
@@ -158,6 +174,12 @@ void ui::midiPage(lv_obj_t* page) {
       lv_obj_set_width(wl, LV_PCT(100));
     }
   }
+  char ps[64];
+  play::summary(ps, sizeof ps);
+  lv_obj_t* pr = navRow(body, LV_SYMBOL_LOOP "  Clock, arp", ps, playPage, t.dim);
+  playDot = label(pr, LV_SYMBOL_BULLET, &lv_font_montserrat_16, t.off);
+  lv_obj_move_to_index(playDot, 1);
+  shownBeat = play::beat();
 
   int n = 0;
   for (int d = 0; d < MIDI_DEVS; d++) {

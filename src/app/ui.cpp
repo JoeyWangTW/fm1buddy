@@ -6,6 +6,7 @@
 #include "hal.h"
 #include "jobs.h"
 #include "midi.h"
+#include "play.h"
 #include "src/themes/lv_theme_private.h"
 #include "ui_priv.h"
 
@@ -389,6 +390,11 @@ static void watch(lv_timer_t*) {
     }
   }
   fm1::watch();
+  uint32_t fm1s = 0;  // the arpeggiator and chords leave the FM-1s' notes alone
+  for (int d = 0; d < MIDI_DEVS; d++) {
+    fm1s |= fm1::known(d) ? 1u << d : 0;
+  }
+  play::skip(fm1s);
   logCounts();
   if (tick) {
     tick();
@@ -413,6 +419,7 @@ void ui::begin() {
   if (!hal::recoveryMode() && hal::load("bluetooth", &bt, 1) && bt) {
     hal::bleOn(true);
   }
+  play::begin();
   bool routing = false;  // MIDI routing from power-on (its own switch on the MIDI page)
   hal::load("routing", &routing, 1);
   if (!hal::diskMode() && !hal::recoveryMode()) {
@@ -424,6 +431,7 @@ void ui::begin() {
   catalog::scanSd();
   setTheme(lv_display_get_default());
   build();
-  go(hal::diskMode() ? diskPage : hal::recoveryMode() ? recoverPage : firmwarePage);
+  go(hal::diskMode() ? diskPage : hal::recoveryMode() ? recoverPage
+                                                      : firmwarePage);
   lv_timer_create(watch, 100, 0);
 }

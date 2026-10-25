@@ -464,6 +464,6 @@ static void trampoline(void* p) {
   vTaskDelete(0);
 }
 
-void hal::spawn(void (*fn)(void*), void* arg) {
-  xTaskCreatePinnedToCore(trampoline, "job", 16384, new Spawn{fn, arg}, 1, 0, 0);
+void hal::spawn(void (*fn)(void*), void* arg, uint32_t stack, int priority) {
+  xTaskCreatePinnedToCore(trampoline, "job", stack, new Spawn{fn, arg}, priority, 0, 0);
 }

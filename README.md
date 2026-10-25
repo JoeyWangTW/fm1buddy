@@ -8,7 +8,10 @@ All without a computer/phone/etc:
 - nice themed menus
 - Backup flash/settings/presets/etc (from stock V15, or any firmware)
 - Send/record sounds (.syx, like DX7 banks)
-- MIDI-routing: Bluetooth & USB devices pass notes, clock & controls to each other, or map them with rules in `midimap.txt` on the SD card (say, several controllers each onto their own FM-1 channel).
+- MIDI-routing: Bluetooth & USB devices pass notes, clock & controls to each other, or map them with rules in `midimap.txt` on the SD card (say, several controllers each onto their own FM-1 channel). Add and delete rules by touch, split a keyboard at any key, transpose, and set or scale velocity.
+- MIDI clock: lead at a tempo (tap tempo, start/stop) or follow a device's clock, with a light on each beat
+- Arpeggiator (up, down, up-down, random, as played; 1/4 to 1/32; up to 4 octaves; hold) and chord memory, for any controller (the FM-1's own notes are left alone)
+- Warns before you install firmware with no backup of the FM-1 on the SD card, with a button to make one
 - Sample-management (folders of WAV to its sample-banks, and back)
 - Act as USB disk (to manage files on SD)
 - MIDI-out, turn FM1 into a sequencer (on supported firmware, like [fomajam](https://github.com/konsumer/fomajam))
@@ -58,6 +61,9 @@ headless from a script too, for screenshots:
 pio run -e sim && .pio/build/sim/program --fm1 --keys
 .pio/build/sim/program --headless --script "tap 24 142; wait 300; shot settings.bmp; quit"
 ```
+
+`tools/unit-test.sh` runs the tests of the MIDI mapping's rules (`test/`). `--clock` gives the simulator's keyboard
+MIDI clock to follow.
 
 `tools/install-test.sh` installs a package on the pretend FM-1, cleanly and with faults (lost and repeated requests,
 garbled answers, unplugged while writing), and checks it ends up exactly as the package.
