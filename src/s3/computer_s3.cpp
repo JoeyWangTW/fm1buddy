@@ -2,7 +2,10 @@
 // port is a USB MIDI device, "fm1buddy" (TinyUSB's MIDI device, added to the framework's USB device as its USBMIDI
 // does: that library itself drags in its USB host code, which clashes with ours), instead of the serial
 // port. The computer is device 0 in MIDI routing ("Computer"): what it sends goes to the others (Bluetooth MIDI, the
-// touch controller's listeners), and theirs to it. The log goes to the SD card meanwhile
+// touch controller's listeners), and theirs to it. The log goes to the SD card meanwhile.
+//
+// The computer can switch it back to the serial port (for automated tests: tools/s3.py serial) with a SysEx of its own,
+// F0 7D 66 6D 31 62 01 F7 (7D: the non-commercial ID, then "fm1b" and 1)
 #include <Arduino.h>
 #include <USB.h>
 #include <esp32-hal-tinyusb.h>
@@ -13,6 +16,8 @@
 #include "tusb.h"
 
 #define DEV 0  // its device in midi.h (the USB host isn't running: its slots are free)
+
+static const uint8_t TO_SERIAL[] = {0xF0, 0x7D, 0x66, 0x6D, 0x31, 0x62, 0x01, 0xF7};
 
 static volatile bool up;
 
@@ -45,6 +50,13 @@ static void task(void*) {
     uint8_t p[4];
     while (tud_midi_packet_read(p)) {
       midi::in(DEV, p);
+    }
+    uint8_t sx[SYSEX_MAX];
+    while (uint32_t n = midi::sysex(DEV, sx)) {
+      if (n == sizeof TO_SERIAL && !memcmp(sx, TO_SERIAL, n)) {
+        hal::log("usb midi: the computer asked for the serial port");
+        hal::computerMidiSet(false);  // (restarts)
+      }
     }
     midi::service(DEV, DEV + 1);
     vTaskDelay(1);

@@ -19,6 +19,7 @@ All without a computer/phone/etc:
 - Act as USB disk (to manage files on SD)
 - MIDI-out, turn FM1 into a sequencer (on supported firmware, like [fomajam](https://github.com/konsumer/fomajam))
 - FM1 Recover: write a firmware or backup to an FM-1 that won't start, like [FM-1-transporter](https://github.com/kurogedelic/FM-1-transporter) with no wiring needed (when people say "use RP2040"). Not tested on a real FM-1 yet
+- Automation options: these are great for LLM development. you can send it a "magic message" whcih is sysex, to go into serial/midi mode, so you can automate testing on real thing.
 
 It should be useful for most firmware, depending on what it supports, but it has some extra stuff that is specific to [fomajam](https://github.com/konsumer/fomajam):
 
@@ -76,7 +77,9 @@ Each install on the board writes what went between it and the FM-1 to `fm1buddy/
 last 10 are kept): send one along with a report of an install gone wrong.
 
 `tools/s3.py` (with `~/.platformio/penv/bin/python`) does the same on the board: `shot FILE`, `tap X Y`, `drag X1 Y1 X2 Y2`, `log` (what it
-logged on the hub, also in `fm1buddy/log.txt` on its SD card), and `host` (the USB host for 20 s).
+logged on the hub, also in `fm1buddy/log.txt` on its SD card), `host` (the USB host for 20 s), and `usbmidi` / `serial`
+(it restarts as a USB MIDI device for the computer, and back: `serial` sends it a SysEx of its own,
+`F0 7D 66 6D 31 62 01 F7`, and needs `pip install python-rtmidi`), to test USB MIDI from a script.
 
 ```
 src/app/   the app (LVGL 9): pages, the Hub's list, MIDI between devices, the FM-1's update protocol, sounds (SysEx),

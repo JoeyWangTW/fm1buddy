@@ -6,6 +6,8 @@
 #   tools/s3.py drag X1 Y1 X2 Y2 slide a finger from X1, Y1 to X2, Y2 (to scroll)
 #   tools/s3.py log              print its log on the SD card (from when it was the USB host)
 #   tools/s3.py host             restart it as the USB host for 20 s (then it's back here): to test that
+#   tools/s3.py usbmidi          restart it as a USB MIDI device for this computer (Settings > On a computer)
+#   tools/s3.py serial           and back: sends it the SysEx that brings the serial port back (needs python-rtmidi)
 #
 # Needs pyserial (PlatformIO has it: ~/.platformio/penv/bin/python tools/s3.py ...). The port: $PORT, or the first
 # /dev/cu.usbmodem* or /dev/ttyACM*.
@@ -68,6 +70,28 @@ def command(line, secs):
         if d:
             sys.stdout.write(d.decode('utf-8', 'replace'))
 
+TO_SERIAL = [0xF0, 0x7D, 0x66, 0x6D, 0x31, 0x62, 0x01, 0xF7]  # computer_s3.cpp
+
+def to_serial():
+    try:
+        import rtmidi
+    except ImportError:
+        sys.exit('needs python-rtmidi: pip install python-rtmidi')
+    out = rtmidi.MidiOut()
+    ports = out.get_ports()
+    i = next((k for k, p in enumerate(ports) if 'fm1buddy' in p.lower() and 'bluetooth' not in p.lower()), None)
+    if i is None:
+        sys.exit('no fm1buddy USB MIDI port (is it in USB MIDI mode, on this computer?)')
+    out.open_port(i)
+    out.send_message(TO_SERIAL)
+    time.sleep(0.3)
+    out.close_port()
+    for _ in range(50):  # it restarts: wait for its serial port
+        time.sleep(0.2)
+        if glob.glob('/dev/cu.usbmodem*') + glob.glob('/dev/ttyACM*'):
+            return
+    sys.exit('it didn\'t come back as a serial port')
+
 if __name__ == '__main__':
     a = sys.argv[1:]
     if a[:1] == ['shot'] and len(a) == 2:
@@ -80,5 +104,9 @@ if __name__ == '__main__':
         command('log', 2)
     elif a == ['host']:
         command('host', 0.5)
+    elif a == ['usbmidi']:
+        command('usbmidi', 0.5)
+    elif a == ['serial']:
+        to_serial()
     else:
-        sys.exit('tools/s3.py shot FILE | tap X Y | drag X1 Y1 X2 Y2 | log | host')
+        sys.exit('tools/s3.py shot FILE | tap X Y | drag X1 Y1 X2 Y2 | log | host | usbmidi | serial')

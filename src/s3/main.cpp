@@ -143,7 +143,8 @@ void setup() {
 }
 
 // the serial console (tools/s3.py): "shot" sends the screen (SHOT w h, then w*h RGB565 pixels, little-endian),
-// "tap x y" touches it for a moment, "drag x1 y1 x2 y2" slides a finger across it, "log" prints the SD card's log, "host" restarts as the USB host for 20 s
+// "tap x y" touches it for a moment, "drag x1 y1 x2 y2" slides a finger across it, "log" prints the SD card's log, "host" restarts as the USB host for 20 s, "usbmidi" restarts as USB MIDI for the
+// computer (until it sends the SysEx that brings the serial port back: computer_s3.cpp)
 static void console() {
   static char line[32];
   static uint8_t n;
@@ -163,6 +164,8 @@ static void console() {
       board::printLog();
     } else if (!strcmp(line, "host")) {
       board::hostTestStart();
+    } else if (!strcmp(line, "usbmidi")) {
+      hal::computerMidiSet(true);  // (restarts as USB MIDI for this computer)
     } else if (!strcmp(line, "shot")) {
       lv_draw_buf_t* d = lv_snapshot_take(lv_screen_active(), LV_COLOR_FORMAT_RGB565);
       if (d) {
