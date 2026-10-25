@@ -28,6 +28,12 @@ static uint32_t clipAt;
 static bool there, wasRecording;
 static uint32_t shownSeq;
 
+// the theme's warning color: its red (first tag), or its last tag where the red is its accent (ORANGE)
+static uint32_t warn() {
+  const Theme& t = theme();
+  return t.knob[0] != t.accent ? t.knob[0] : t.knob[3];
+}
+
 // a peak (0-32767) as the meter's 0-100: -60..0 dBFS
 static int level(float peak) {
   if (peak < 33) {
@@ -111,7 +117,7 @@ static void live() {
   bool clipped = clipAt && ms - clipAt < 1500;
   lv_obj_update_flag(clipLabel, LV_OBJ_FLAG_HIDDEN, !clipped);
   for (auto* b : bars) {
-    lv_obj_set_style_bg_color(b, color(clipped ? t.knob[0] : t.accent), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(b, color(clipped ? warn() : t.accent), LV_PART_INDICATOR);
   }
   if (rec) {
     lv_label_set_text(timeLabel, (clock(record::ms()) + "   " + record::file()).c_str());
@@ -176,7 +182,7 @@ void ui::recordPage(lv_obj_t* page) {
       shown[c] = 0;
     }
     clipLabel = label(body, LV_SYMBOL_WARNING " It clipped: turn the FM-1 down (its USB level follows MASTER)",
-                      &lv_font_montserrat_12, t.knob[0]);
+                      &lv_font_montserrat_12, warn());
     lv_obj_add_flag(clipLabel, LV_OBJ_FLAG_HIDDEN);
     clipAt = 0;
 
@@ -186,8 +192,10 @@ void ui::recordPage(lv_obj_t* page) {
     lv_obj_set_style_pad_column(r, 8, 0);
     lv_obj_set_style_pad_ver(r, 4, 0);
     recBtn = button(r, wasRecording ? LV_SYMBOL_STOP "  Stop" : LV_SYMBOL_BULLET "  Record", recTapped);
-    lv_obj_set_style_bg_color(recBtn, color(wasRecording ? t.off : 0xc02020), 0);
-    lv_obj_set_style_text_color(recBtn, color(t.text), 0);
+    if (!wasRecording) {  // record: the theme's red (its first tag color), as the clip warning
+      lv_obj_set_style_bg_color(recBtn, color(warn()), 0);
+      lv_obj_set_style_text_color(recBtn, color(t.bg), 0);
+    }
     timeLabel = label(r, wasRecording ? "" : "", &lv_font_montserrat_14, t.text);
     statsLabel = label(body, "", &lv_font_montserrat_12, t.dim);
     problemLabel = wrapped(body, "", t.knob[0]);
