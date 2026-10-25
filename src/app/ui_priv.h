@@ -69,8 +69,9 @@ enum Start { START_FIRMWARE,
 extern const char* const START_NAMES[STARTS];
 int startPage();
 void soundsPage(lv_obj_t* page);
-void syxPage(lv_obj_t* page);    // a .syx
-void setupPage(lv_obj_t* page);  // a setup
+void recordPage(lv_obj_t* page);  // the FM-1's USB audio to the SD card
+void syxPage(lv_obj_t* page);     // a .syx
+void setupPage(lv_obj_t* page);   // a setup
 void settingsPage(lv_obj_t* page);
 void wifiPage(lv_obj_t* page);
 void backupPage(lv_obj_t* page);        // all of the FM-1's flash to the SD card

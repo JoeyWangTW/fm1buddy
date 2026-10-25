@@ -13,6 +13,9 @@ void loop();
 // testing over the serial console: "host" starts as the USB host once (for 20 s), "log" prints the SD card's log
 void hostTestStart();
 void printLog();
+// USB audio in (uac_s3.cpp): the host task's turn; and the MIDI device of a USB address (usb_s3.cpp), -1 if none
+void audioPoll();
+int usbSlot(uint8_t daddr);
 // USB MIDI for a computer (computer_s3.cpp): the port as a USB MIDI device, it's on, MIDI to it (device 0)
 void computerBegin();
 bool computerOn();

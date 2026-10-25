@@ -281,6 +281,15 @@ uint32_t hal::midiOut(int d, const uint8_t* p, uint32_t n) {
   return d < MIDI_USB ? usbOut(d, p, n) : board::bleOut(d, p, n);
 }
 
+int board::usbSlot(uint8_t daddr) {
+  for (int i = 0; i < MIDI_USB; i++) {
+    if (dev[i].on && dev[i].daddr == daddr) {
+      return i;
+    }
+  }
+  return -1;
+}
+
 bool hal::usbHost() {
   return hostOn;
 }
@@ -316,6 +325,7 @@ static void hostTask(void*) {
       cmd.ok = storageRun();
       cmd.state = 2;
     }
+    board::audioPoll();
     midi::service();
     ledLoop();
   }
