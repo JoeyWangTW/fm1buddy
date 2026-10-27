@@ -7,6 +7,8 @@
 
 namespace fake {
 void begin(bool fm1, bool keys, bool faults, bool fomajam = false);
+// the FM-1 runs SLOOP (its editor protocol: backups, projects, sample slots)
+void sloopMode(bool on);
 // the keyboard sends MIDI clock too, at 100 BPM (to follow)
 void keysClock(bool on);
 // the FM-1 sends a DX7 bank (as from its menu)

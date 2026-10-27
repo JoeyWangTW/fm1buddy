@@ -16,6 +16,7 @@ All without a computer/phone/etc:
 - USB MIDI for a computer: plugged straight into one, it's a class-compliant USB MIDI device (Settings > On a computer), so the touch controller, clock and Bluetooth MIDI devices reach your DAW, and the DAW can play them
 - Warns before you install firmware with no backup of the FM-1 on the SD card, with a button to make one
 - Sample-management (folders of WAV to its sample-banks, and back)
+- SLOOP (2.3+): back it up in SLOOP's own file (they open in its web editor, and its backups open here), restore one, load a single project from one, and load folders of WAVs into its sample slots. The Sounds page says what the firmware on the FM-1 can do, and what to install for more
 - Act as USB disk (to manage files on SD)
 - MIDI-out, turn FM1 into a sequencer (on supported firmware, like [fomajam](https://github.com/konsumer/fomajam))
 - FM1 Recover: write a firmware or backup to an FM-1 that won't start, like [FM-1-transporter](https://github.com/kurogedelic/FM-1-transporter) with no wiring needed (when people say "use RP2040"). Not tested on a real FM-1 yet
@@ -66,7 +67,9 @@ pio run -e sim && .pio/build/sim/program --fm1 --keys
 .pio/build/sim/program --headless --script "tap 24 142; wait 300; shot settings.bmp; quit"
 ```
 
-`tools/unit-test.sh` runs the tests of the MIDI mapping's rules (`test/`). `--clock` gives the simulator's keyboard
+`tools/unit-test.sh` runs the tests of the MIDI mapping's rules and SLOOP's formats (`test/`: a sample slot made from
+.wav files must be the bytes SLOOP's own `tools/sampleio.py` makes). `--sloop` makes the simulator's FM-1 one running
+SLOOP 2.8. `--theme NAME` shows it in one of the themes (WHITE, NEON, ...), to check a page in all of them. `--clock` gives the simulator's keyboard
 MIDI clock to follow; `press X Y`, `release`, `finger2 X Y` and `lift2` in a script hold fingers down, for the touch
 controller.
 

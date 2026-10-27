@@ -16,6 +16,7 @@
 #include "hal.h"
 #include "kits.h"
 #include "midi.h"
+#include "sloop.h"
 #include "songmidi.h"
 
 static void wait(uint32_t ms) {
@@ -636,6 +637,20 @@ void sounds::probe(int d, Speaks& out) {
       out.version[k++] = (char)reply[i];
     }
     out.version[k] = 0;
+    sloop::Info si;  // the rest of INFO: is it SLOOP, and which protocol
+    if (sloop::parseInfo(reply.data() + 5, (uint32_t)reply.size() - 6, si)) {
+      out.sloop = si.sloop();
+      out.proto = (uint8_t)si.proto;
+      out.pcount = (uint8_t)si.pcount;
+    }
+    std::vector<sloop::Slot> slots;
+    if (out.sloop && !sloop::slots(d, slots)) {
+      out.slots = (uint8_t)std::min<size_t>(slots.size(), 4);
+      for (int i = 0; i < out.slots; i++) {
+        out.slot[i].zones = (uint8_t)slots[i].zones;
+        snprintf(out.slot[i].name, sizeof out.slot[i].name, "%s", slots[i].name.c_str());
+      }
+    }
   }
 
   // its command 0 (connect), token 1: answered with command 0 | 64 and the same token
@@ -648,7 +663,8 @@ void sounds::probe(int d, Speaks& out) {
   out.open = ask(
       d, open, sizeof open, 800,
       [](const uint8_t* m, uint32_t n) { return n >= 10 && !memcmp(m, "\xF0\x7D\x46\x4D\x02\x40\x01\x00", 8); }, reply);
-  hal::log("sounds: %d: stock voice %d, felucca %d (%s), open %d", d, out.stockVoice, out.felucca, out.version, out.open);
+  hal::log("sounds: %d: stock voice %d, felucca %d (%s, sloop %d, protocol %d), open %d", d, out.stockVoice, out.felucca,
+           out.version, out.sloop, out.proto, out.open);
 }
 
 // the update command: never sent from a file (it would leave the FM-1 in update mode)
