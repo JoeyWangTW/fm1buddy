@@ -65,41 +65,41 @@ void ui::recoverPage(lv_obj_t* page) {
   }
   shownRunning = jobs::running, shownStep = jobs::step, shownKey = hal::keyState();
   bool mine = jobs::kind == jobs::RECOVER;
-  header(page, LV_SYMBOL_WARNING "  Recovering the FM-1");
-  lv_obj_t* body = scroller(page);
-  lv_obj_set_style_pad_row(body, 6, 0);
   std::string from = jobs::recovering(), name = nameOf(from);
   for (const Firmware& f : catalog::sd) {
     if (f.file == name && !f.name.empty()) {
       name = f.name;
     }
   }
-  wrapped(body, ("Putting " + name + " on it.").c_str(), &lv_font_montserrat_14, t.text);
+  header(page, LV_SYMBOL_WARNING "  Recovering the FM-1");
+  lv_obj_t* body = scroller(page);
+  lv_obj_set_style_pad_row(body, 6, 0);
+  wrapped(body, ("Putting " + name + " on it.").c_str(), &lv_font_montserrat_12, t.dim);
   bool waiting = jobs::running && (jobs::step == jobs::GETTING_READY || jobs::step == jobs::KEYING);
   if (jobs::running) {
-    status = wrapped(body, jobs::status().c_str(), &lv_font_montserrat_16, t.accent);
+    // one step at a time: off, on, then it runs
+    status = wrapped(body, jobs::status().c_str(), &lv_font_montserrat_20, t.accent);
     if (waiting && hal::keyState() < hal::KEY_ANSWERED) {
       wrapped(body,
-              "It has to be straight on fm1buddy's USB-C adapter, with nothing between (no hub), and the charger in the "
-              "adapter. If it's on already, switch it off, then on.",
+              "It has to start from no power at all: only then does its chip listen. Plug it straight into fm1buddy's "
+              "USB-C adapter (no hub).",
               &lv_font_montserrat_12, t.dim);
     } else if (!waiting) {
-      wrapped(body, "Don't unplug it or switch it off until this is done.", &lv_font_montserrat_12, t.dim);
+      wrapped(body, "Leave it plugged in and on.", &lv_font_montserrat_14, t.text);
     }
   } else if (mine && jobs::ok) {
     status = 0;
-    wrapped(body, jobs::error.empty() ? "Done: it's on the FM-1." : jobs::error.c_str(), &lv_font_montserrat_16, t.accent);
-    wrapped(body,
-            "Switch the FM-1 off and on again: it starts what was written. Then unplug it, plug the hub back in, and "
-            "tap Done.",
+    wrapped(body, jobs::error.empty() ? "Done: it's on the FM-1." : jobs::error.c_str(), &lv_font_montserrat_16,
+            t.accent);
+    wrapped(body, "Switch the FM-1 off and on: it starts what was written. Then plug the hub back in, and tap Done.",
             &lv_font_montserrat_14, t.text);
   } else {
     status = 0;
     wrapped(body, mine ? jobs::error.c_str() : "Busy: try again.", &lv_font_montserrat_14, t.knob[0]);
   }
   if (!jobs::saved.empty() && mine) {
-    wrapped(body, ("Its flash as it was is on the SD card: " BACKUPS_DIR "/" + jobs::saved + ".").c_str(),
-            &lv_font_montserrat_12, t.dim);
+    wrapped(body, ("Its flash as it was: " BACKUPS_DIR "/" + jobs::saved + ".").c_str(), &lv_font_montserrat_12,
+            t.dim);
   }
   lv_obj_t* row = box(body, LV_FLEX_FLOW_ROW);
   lv_obj_set_style_pad_top(row, 6, 0);
@@ -116,7 +116,6 @@ void ui::recoverPage(lv_obj_t* page) {
     }
     button(row, LV_SYMBOL_OK " Done", doneTapped);
   }
-  wrapped(body, "Done and Cancel restart fm1buddy as it was, with the hub.", &lv_font_montserrat_12, t.dim);
   tick = recoverTick;
 }
 
@@ -160,9 +159,24 @@ static void backups(std::vector<Choice>& out) {
   out.insert(out.end(), found.begin(), found.end());
 }
 
+static std::vector<lv_obj_t*> checks, names;  // the list's rows (a choice changes them, not the page: its scroll stays)
+static lv_obj_t* startBtn;
+
+static void showChosen() {
+  const Theme& t = theme();
+  for (size_t i = 0; i < choices.size() && i < checks.size(); i++) {
+    bool on = choices[i].path == chosen;
+    lv_label_set_text(checks[i], on ? LV_SYMBOL_OK : " ");
+    lv_obj_set_style_text_color(names[i], color(on ? t.accent : t.text), 0);
+  }
+  if (startBtn) {
+    lv_obj_set_state(startBtn, LV_STATE_DISABLED, chosen.empty() || jobs::running || !hal::sd());
+  }
+}
+
 static void chooseTapped(lv_event_t* e) {
   chosen = choices[(intptr_t)lv_event_get_user_data(e)].path;
-  go(recoverStartPage);
+  showChosen();
 }
 
 static void startTapped(lv_event_t*) {
@@ -192,18 +206,10 @@ void ui::recoverStartPage(lv_obj_t* page) {
   header(page, "Recover the FM-1", settingsPage);
   lv_obj_t* body = scroller(page);
   lv_obj_set_style_pad_row(body, 4, 0);
-  wrapped(body,
-          "For an FM-1 that doesn't start any more. Its chip has a boot loader no firmware can break: fm1buddy wakes "
-          "it as the FM-1 is switched on, saves its flash as it was to the SD card, and writes a firmware or a backup "
-          "back onto it (the part the chip starts from is never written).",
-          &lv_font_montserrat_12, t.text);
-  wrapped(body,
-          "Try this first: hold OCT- while switching the FM-1 on. That starts its update mode (if it still has it), "
-          "and Firmware installs on it as ever, on the hub.",
+  wrapped(body, "For an FM-1 that doesn't start: a firmware or a backup goes back on it, through its chip's own boot loader.",
           &lv_font_montserrat_12, t.dim);
 
-  // what goes on it
-  label(body, "1. What goes on it", &lv_font_montserrat_14, t.text);
+  label(body, "Put on it", &lv_font_montserrat_14, t.text);
   choices.clear();
   for (const Firmware& f : catalog::sd) {
     if (!strncmp(f.product.c_str(), "FM-1_", 5)) {
@@ -216,13 +222,15 @@ void ui::recoverStartPage(lv_obj_t* page) {
   if (std::none_of(choices.begin(), choices.end(), [](const Choice& c) { return c.path == chosen; })) {
     chosen.clear();
   }
+  checks.clear();
+  names.clear();
   for (size_t i = 0; i < choices.size(); i++) {
     const Choice& c = choices[i];
-    bool on = c.path == chosen;
     lv_obj_t* r = listRow(body, chooseTapped, (void*)(intptr_t)i);
-    label(r, on ? LV_SYMBOL_OK : " ", &lv_font_montserrat_14, t.accent);
-    lv_obj_t* n = line(r, c.name.c_str(), &lv_font_montserrat_14, on ? t.accent : t.text);
+    checks.push_back(label(r, " ", &lv_font_montserrat_14, t.accent));
+    lv_obj_t* n = line(r, c.name.c_str(), &lv_font_montserrat_14, t.text);
     lv_obj_set_flex_grow(n, 1);
+    names.push_back(n);
     lv_obj_t* w = line(r, c.what.c_str(), &lv_font_montserrat_12, t.dim);
     lv_obj_set_width(w, 80);
     lv_obj_set_style_text_align(w, LV_TEXT_ALIGN_RIGHT, 0);
@@ -233,33 +241,12 @@ void ui::recoverStartPage(lv_obj_t* page) {
                       : "No SD card.",
             &lv_font_montserrat_12, t.knob[0]);
   }
-
-  // then
-  lv_obj_t* h = label(body, "2. Then", &lv_font_montserrat_14, t.text);
-  lv_obj_set_style_pad_top(h, 6, 0);
-  static const char* STEPS[] = {
-      "Switch the FM-1 off.",
-      "Unplug the hub from fm1buddy's USB-C adapter, and plug the FM-1 in instead: straight in, nothing between. Keep "
-      "the charger in the adapter: it powers fm1buddy (the FM-1 can't).",
-      "Tap Start: fm1buddy restarts, and waits for it.",
-      "Switch the FM-1 on when it says so. Leave it plugged in and on until it's done.",
-  };
-  for (int i = 0; i < 4; i++) {
-    char s[200];
-    snprintf(s, sizeof s, "%d. %s", i + 1, STEPS[i]);
-    wrapped(body, s, &lv_font_montserrat_12, t.text);
-  }
   lv_obj_t* row = box(body, LV_FLEX_FLOW_ROW);
   lv_obj_set_style_pad_top(row, 6, 0);
-  lv_obj_t* b = button(row, LV_SYMBOL_PLAY " Start", startTapped);
-  if (chosen.empty() || jobs::running || !hal::sd()) {
-    lv_obj_add_state(b, LV_STATE_DISABLED);
-  }
+  startBtn = button(row, LV_SYMBOL_PLAY " Start", startTapped);
+  showChosen();
   prepStatus = label(body, jobs::running ? jobs::status().c_str() : "", &lv_font_montserrat_14, t.accent);
-  wrapped(body,
-          uboot::haveLoader() ? "Cancel on the next screen, before it's switched on, to come back."
-                              : "Start downloads JieLi's loader for its boot loader first (Wi-Fi), once.",
-          &lv_font_montserrat_12, t.dim);
+  wrapped(body, "fm1buddy restarts for it, then shows what to do, step by step.", &lv_font_montserrat_12, t.dim);
   tick = startTick;
   jobDone = prepared;
 }

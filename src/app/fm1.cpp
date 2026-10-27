@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <unistd.h>
 
 #include <chrono>
 #include <thread>
@@ -190,8 +191,8 @@ static uint32_t unpack7(const uint8_t* in, uint32_t n, uint8_t* out, uint32_t ma
   return o;
 }
 
-// false: the device went, or didn't take it for a second
-static bool respond(int d, uint32_t addr, const uint8_t* data, uint32_t len, uint8_t fl) {
+// its length on the wire (SysEx bytes), or 0: the device went, or didn't take it for a second
+static uint32_t respond(int d, uint32_t addr, const uint8_t* data, uint32_t len, uint8_t fl) {
   static uint8_t body[14 + MAXDATA + 1], wire[2 + (sizeof body * 8 + 6) / 7];
   uint32_t n = 0, s = 0;
   body[n++] = 0x00;
@@ -218,7 +219,7 @@ static bool respond(int d, uint32_t addr, const uint8_t* data, uint32_t len, uin
   wire[w++] = 0xF0;
   w += pack7(body, n, wire + w);
   wire[w++] = 0xF7;
-  return midi::sendWait(d, wire, w, 1000);
+  return midi::sendWait(d, wire, w, 1000) ? w : 0;
 }
 
 // (each call its own buffer: a job and the UI may both be at it)
@@ -392,7 +393,8 @@ static int waitFor(bool ota, Fm1Id& id, uint32_t ms) {
   return -1;
 }
 
-// what each device said, asked once it settled (not blocking: fm1::watch)
+// what each device said, asked once it settled (not blocking: fm1::watch). One that looks like an FM-1 is asked again
+// every 5 s for a minute: an FM-1 just out of its boot loader (a backup) can be slow to answer
 static struct {
   uint32_t serial;  // the mount it's about (0: none)
   uint32_t askAt, sentAt;
@@ -439,8 +441,11 @@ void fm1::watch() {
       }
     } else if (now - s.sentAt > 1000) {
       s.sentAt = 0;
-      s.askAt = now;
-      s.done = s.tries >= 2;
+      s.askAt = now + (s.tries < 2 ? 0 : 4000);
+      s.done = s.tries >= 14;
+      if (s.tries == 2) {
+        hal::log("fm1: %d (%s) doesn't answer yet: asking every 5 s, for a minute", d, v.name);
+      }
     }
   }
 }
@@ -470,8 +475,13 @@ static void recLine(bool flush, const char* fmt, va_list a) {
   fprintf(rec, "%7.3f  ", (hal::millis() - recStart) / 1000.0);
   vfprintf(rec, fmt, a);
   fputc('\n', rec);
-  if (flush) {
-    fflush(rec);  // what happened so far is on the card, even if the power goes
+  // what happened so far on the card, even if the power goes: flushed and synced (a FAT file not closed keeps its old
+  // size without the sync), at each step and every 2 s between
+  static uint32_t syncedAt;
+  if (flush || hal::millis() - syncedAt > 2000) {
+    fflush(rec);
+    fsync(fileno(rec));
+    syncedAt = hal::millis();
   }
 }
 
@@ -520,7 +530,7 @@ static Served serve(int d, const Pkg& pkg, uint32_t finish, uint32_t idleMs, Fm1
   midi::Dev v;
   midi::dev(d, v);
   uint32_t serial = v.serial, last = hal::millis(), dropped = v.dropped, lost = v.sysexLost;
-  uint32_t prevAddr = ~0u, prevLen = 0, next = 0, again = 0, jumps = 0, odd = 0;
+  uint32_t prevAddr = ~0u, prevLen = 0, next = 0, again = 0, jumps = 0, odd = 0, bytes = 0;
   Served s = {0, false, false, false};
   auto summary = [&](const char* how) {
     note("%s: %u answered, %u asked again, %u out of order, %u not understood", how, (unsigned)s.served,
@@ -569,9 +579,12 @@ static Served serve(int d, const Pkg& pkg, uint32_t finish, uint32_t idleMs, Fm1
     if (r.addr == prevAddr && r.len == prevLen) {
       tag = "  again";  // our answer was lost, or late
       again++;
-    } else if (step == STEP_WRITE && s.served && r.addr != next) {
-      tag = "  jump";
-      jumps++;
+    } else {
+      bytes += r.len;
+      if (step == STEP_WRITE && s.served && r.addr != next && r.addr + r.len != prevAddr) {  // (up or down)
+        tag = "  jump";
+        jumps++;
+      }
     }
     noteReq("%08X+%u fl %u%s", (unsigned)r.addr, (unsigned)r.len, r.fl, tag);
     prevAddr = r.addr;
@@ -585,13 +598,25 @@ static Served serve(int d, const Pkg& pkg, uint32_t finish, uint32_t idleMs, Fm1
       return s;
     }
     wait(10);
-    if (!respond(d, r.addr, data, r.len, r.fl)) {
+    uint32_t before = hal::midiSent(d), start = hal::millis();
+    uint32_t w = respond(d, r.addr, data, r.len, r.fl);
+    if (!w) {
       note("! the answer didn't go");
       continue;  // it asks again, or goes
     }
+    // that it went out on USB (not only queued): its packets, 3 SysEx bytes each
+    uint32_t want = (w + 2) / 3 * 4, out = 0;
+    while (hal::millis() - start < 1000 && ((out = hal::midiSent(d) - before) < want || midi::waiting(d))) {
+      wait(1);
+    }
+    uint32_t took = hal::millis() - start;
+    if (out < want || !s.served) {
+      note("%sanswer: %u of %u bytes out in %u ms", out < want ? "! " : "", (unsigned)out, (unsigned)want,
+           (unsigned)took);
+    }
     s.served++;
     if (cb) {
-      cb(step, s.served, r.addr);
+      cb(step, bytes < pkg.size ? bytes : pkg.size, r.addr);
     }
   }
 }

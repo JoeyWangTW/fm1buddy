@@ -19,6 +19,10 @@
 #define CFG_TUH_MIDI_STREAM_API 0
 #define CFG_TUH_DWC2_ENDPOINT_MAX 24
 #define CFG_TUH_API_EDPT_XFER 1  // the FM-1's boot loader: a storage device spoken to here, without TinyUSB's driver
+// DMA: the USB core itself retries a packet a device refuses (NAK: the FM-1's update loader, busy writing its flash).
+// Without it (slave mode) TinyUSB restarts the transfer in software, and a send to the loader hung there for good.
+// Every transfer's buffer is then in internal RAM and 4-byte aligned (usb_s3.cpp's are)
+#define CFG_TUH_DWC2_DMA_ENABLE 1
 
 // not used: their buffers stay out of the internal RAM
 #undef CFG_TUH_CDC
