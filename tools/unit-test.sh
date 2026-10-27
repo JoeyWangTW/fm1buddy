@@ -5,3 +5,5 @@ cd "$(dirname "$0")/.."
 mkdir -p build
 c++ -std=gnu++17 -Wall -I src/app -o build/midimap_test test/midimap_test.cpp src/app/midimap.cpp
 build/midimap_test
+c++ -std=gnu++17 -Wall -I src/app -o build/sloopfmt_test test/sloopfmt_test.cpp src/app/sloopfmt.cpp
+build/sloopfmt_test

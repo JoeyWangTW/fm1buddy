@@ -4,6 +4,7 @@
 #include <lvgl.h>
 
 #include "settings.h"
+#include "sounds.h"
 #include "themes.h"
 
 #define SCREEN_W 320
@@ -69,9 +70,14 @@ enum Start { START_FIRMWARE,
 extern const char* const START_NAMES[STARTS];
 int startPage();
 void soundsPage(lv_obj_t* page);
-void recordPage(lv_obj_t* page);  // the FM-1's USB audio to the SD card
-void syxPage(lv_obj_t* page);     // a .syx
-void setupPage(lv_obj_t* page);   // a setup
+void recordPage(lv_obj_t* page);       // the FM-1's USB audio to the SD card
+int soundsDev();                       // the device picked there
+const sounds::Speaks* soundsSpeaks();  // what it speaks (0 if it hasn't been asked yet)
+void soundsReprobe();                  // ask it again (after something changed it): a probe job
+void soundsProbed();                   // a probe ended: what it said
+void sloopPage(lv_obj_t* page);        // SLOOP: backups, projects, sample slots
+void syxPage(lv_obj_t* page);          // a .syx
+void setupPage(lv_obj_t* page);        // a setup
 void settingsPage(lv_obj_t* page);
 void wifiPage(lv_obj_t* page);
 void backupPage(lv_obj_t* page);        // all of the FM-1's flash to the SD card

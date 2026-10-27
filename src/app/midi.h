@@ -60,6 +60,7 @@ void send(int d, const uint8_t* bytes, uint32_t n);  // MIDI bytes to device d
 bool sendWait(int d, const uint8_t* bytes, uint32_t n, uint32_t ms);
 uint32_t sysex(int d, uint8_t* out);  // the next complete SysEx (F0..F7) it sent, or 0
 void drain(int d);                    // forget the SysEx it sent
+uint32_t waiting(int d);              // packets still in its queue, not yet handed to hal::midiOut
 // every SysEx device d sends, whole (any length, up to 1 MB), kept from capture(d, true) until capture(d, false)
 void capture(int d, bool on);
 // what was kept so far (complete messages, F0..F7 each)

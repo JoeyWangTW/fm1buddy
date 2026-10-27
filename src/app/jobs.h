@@ -12,20 +12,24 @@
 
 namespace jobs {
 enum Kind { NONE,
-            HUB,       // update the Hub's list
-            DOWNLOAD,  // a Hub firmware to /fm1
-            SCAN,      // the Wi-Fi networks
-            JOIN,      // try a Wi-Fi network (Settings)
-            INSTALL,   // a firmware on the FM-1 (downloaded first, from the Hub, if it isn't on the SD card)
-            PROBE,     // what a device's firmware speaks (sounds.h)
-            SEND,      // a .syx to a device
-            VOICE,     // the stock firmware's current voice to the SD card
-            KEEP,      // what a firmware shares (fomajam's song) into a new setup
-            RESTORE,   // a setup back to it
-            EXPORT,    // a setup's patterns as MIDI files, its kits as .wav files
-            BACKUP,    // all of the FM-1's flash to the SD card (through its boot loader: uboot.h)
-            PREPARE,   // recovery: JieLi's loader on the SD card, then the board restarts into recovery mode
-            RECOVER }; // recovery mode: a firmware or a backup onto the FM-1, through its boot loader
+            HUB,              // update the Hub's list
+            DOWNLOAD,         // a Hub firmware to /fm1
+            SCAN,             // the Wi-Fi networks
+            JOIN,             // try a Wi-Fi network (Settings)
+            INSTALL,          // a firmware on the FM-1 (downloaded first, from the Hub, if it isn't on the SD card)
+            PROBE,            // what a device's firmware speaks (sounds.h)
+            SEND,             // a .syx to a device
+            VOICE,            // the stock firmware's current voice to the SD card
+            KEEP,             // what a firmware shares (fomajam's song) into a new setup
+            RESTORE,          // a setup back to it
+            EXPORT,           // a setup's patterns as MIDI files, its kits as .wav files
+            BACKUP,           // all of the FM-1's flash to the SD card (through its boot loader: uboot.h)
+            PREPARE,          // recovery: JieLi's loader on the SD card, then the board restarts into recovery mode
+            RECOVER,          // recovery mode: a firmware or a backup onto the FM-1, through its boot loader
+            SLOOP_BACKUP,     // SLOOP: a backup of it, in SLOOP's file (sloop.h)
+            SLOOP_RESTORE,    // SLOOP: a backup onto it (backed up first)
+            SLOOP_PROJECT,    // SLOOP: one project of a backup onto it
+            SLOOP_SAMPLES };  // SLOOP: .wav files into a sample slot
 enum Step { IDLE,
             JOINING,
             FETCHING,
@@ -38,16 +42,17 @@ enum Step { IDLE,
             RESTARTING,
             SENDING,
             ASKING_IT,
-            GETTING,        // KEEP
-            WRITING_FILES,  // EXPORT
-            BOOT_LOADER,    // BACKUP: the FM-1 into its boot loader
-            READING_FLASH,  // BACKUP: its flash (done, total), twice
-            LEAVING,        // BACKUP: back to its firmware
-            GETTING_READY,  // RECOVER: what goes on it, from the SD card
-            KEYING,         // RECOVER: the key (hal.h keyState says how far)
-            SAVING,         // RECOVER: its flash as it was, to the SD card
-            WRITING_FLASH,  // RECOVER: the sectors that differ (done, total)
-            CHECKING_FLASH };  // RECOVER: all of it read again
+            GETTING,         // KEEP
+            WRITING_FILES,   // EXPORT
+            BOOT_LOADER,     // BACKUP: the FM-1 into its boot loader
+            READING_FLASH,   // BACKUP: its flash (done, total), twice
+            LEAVING,         // BACKUP: back to its firmware
+            GETTING_READY,   // RECOVER: what goes on it, from the SD card
+            KEYING,          // RECOVER: the key (hal.h keyState says how far)
+            SAVING,          // RECOVER: its flash as it was, to the SD card
+            WRITING_FLASH,   // RECOVER: the sectors that differ (done, total)
+            CHECKING_FLASH,  // RECOVER: all of it read again
+            WORKING };       // SLOOP_*: doing (done, total)
 
 extern std::atomic<int> kind, step;
 extern std::atomic<bool> running;
@@ -62,7 +67,7 @@ extern std::string hubUpdated;
 extern int device;             // PROBE, SEND, VOICE, KEEP, RESTORE: the device
 extern sounds::Speaks speaks;  // PROBE
 extern std::string saved;      // VOICE: the file it went into; KEEP: the setup; EXPORT: what it did; BACKUP, RECOVER: its
-                               // backup's file
+                               // backup's file; SLOOP_BACKUP: the backup; SLOOP_RESTORE: the backup made first
 
 bool hubList(bool asked = true);  // asked: the user did (else it's automatic, and doesn't pause Bluetooth MIDI)
 // a job the user asked for needed Wi-Fi, so Bluetooth MIDI paused (once, for a message)
@@ -83,6 +88,12 @@ bool backup(int d);  // device d: the FM-1
 bool prepare(const std::string& from);
 std::string recovering();  // what's going on it ("" if nothing)
 bool recover();            // in recovery mode: put it on
+// SLOOP (sloop.h), on device d: a backup; a backup back (file, in /sloop); project from (0, 2..5) of a backup as project
+// to; a sample source (in /sloop/samples) into slot 0..3
+bool sloopBackup(int d);
+bool sloopRestore(int d, const std::string& file);
+bool sloopProject(int d, const std::string& file, int from, int to);
+bool sloopSamples(int d, const std::string& source, int slot);
 // "Joining Wi-Fi", "Downloading 40%", "Writing 12%", ...
 std::string status();
 }  // namespace jobs

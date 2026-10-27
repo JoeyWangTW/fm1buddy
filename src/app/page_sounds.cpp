@@ -27,6 +27,27 @@ static std::string setup;  // the setup shown
 static bool sure;          // send, load: tapped once
 
 // the device: the one picked if it's still there; else the FM-1; else the first one
+int ui::soundsDev() {
+  return dev;
+}
+
+const sounds::Speaks* ui::soundsSpeaks() {
+  return dev >= 0 && probedSerial == devSerial ? &speaks : 0;
+}
+
+void ui::soundsReprobe() {
+  if (!jobs::probe(dev)) {
+    probedSerial = 0;  // (busy: asked again when the Sounds page shows)
+  }
+}
+
+void ui::soundsProbed() {
+  if (jobs::kind == jobs::PROBE && jobs::device == dev) {
+    speaks = jobs::speaks;
+    probedSerial = devSerial;
+  }
+}
+
 static void pickDevice() {
   midi::Dev v;
   if (dev >= 0 && midi::dev(dev, v) && v.serial == devSerial) {
@@ -293,10 +314,7 @@ static void voiceTapped(lv_event_t*) {
 
 static void soundsDone() {
   if (jobs::kind == jobs::PROBE) {
-    if (jobs::device == dev) {
-      speaks = jobs::speaks;
-      probedSerial = devSerial;
-    }
+    soundsProbed();
   } else if (jobs::kind == jobs::VOICE) {
     toast(jobs::ok ? ("Saved as " SYX_DIR "/" + jobs::saved + ".").c_str() : jobs::error.c_str(), !jobs::ok);
   } else if (jobs::kind == jobs::KEEP) {
@@ -403,6 +421,29 @@ void ui::soundsPage(lv_obj_t* page) {
       }
       if (!speaks.share && !speaks.stockVoice && !speaks.felucca && !speaks.open) {
         label(chips, "SysEx only", &lv_font_montserrat_12, t.dim);
+      }
+    }
+
+    // what more it can do, by its firmware
+    if (asked && speaks.sloop && speaks.proto >= 6) {
+      lv_obj_t* r = listRow(body, [](lv_event_t*) { go(sloopPage); }, 0);
+      label(r, LV_SYMBOL_SAVE "  SLOOP", &lv_font_montserrat_16, t.text);
+      lv_obj_t* v = line(r, "backups, projects, samples", &lv_font_montserrat_12, t.dim);
+      lv_obj_set_style_text_align(v, LV_TEXT_ALIGN_RIGHT, 0);
+      lv_obj_set_flex_grow(v, 1);
+      label(r, LV_SYMBOL_RIGHT, &lv_font_montserrat_14, t.dim);
+    } else if (asked && fm1::candidate(dev)) {
+      const char* hint = speaks.sloop     ? "Backups, projects and sample slots need SLOOP 2.3 or later: update it from "
+                                            "Firmware (the Hub has it)."
+                         : speaks.felucca ? "SLOOP (on the Hub) adds backups, projects and sample slots you can load "
+                                            "from here. Settings > Back up the FM-1 saves all of its flash with any "
+                                            "firmware."
+                         : speaks.share   ? 0
+                                          : "Settings > Back up the FM-1 saves all of its flash, with any firmware.";
+      if (hint) {
+        lv_obj_t* l = label(body, hint, &lv_font_montserrat_12, t.dim);
+        lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
+        lv_obj_set_width(l, LV_PCT(100));
       }
     }
 

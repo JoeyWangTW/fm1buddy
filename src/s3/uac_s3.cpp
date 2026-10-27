@@ -36,7 +36,10 @@ static uint8_t* ring = (uint8_t*)heap_caps_malloc(RING, MALLOC_CAP_SPIRAM);
 static std::atomic<uint32_t> ringW{0}, ringR{0};
 static std::atomic<uint32_t> packets{0}, bytes{0}, errors{0}, overruns{0}, startMs{0};
 static std::atomic<uint16_t> peaks[2];
-static uint8_t pkt[PKT_MAX] __attribute__((aligned(4)));  // (internal RAM: the host's FIFO is read into it)
+// two, in turn: the next packet comes into one (internal RAM: the host's DMA writes it) while the last is read from the
+// other. With one, a late read would have the next packet land on it half way
+static uint8_t pkt[2][PKT_MAX] __attribute__((aligned(4)));
+static uint8_t filling;  // the one the transfer under way fills
 static uint8_t rateBuf[4] __attribute__((aligned(4)));
 static tusb_control_request_t rateReq;  // (kept: TinyUSB reads it as the request goes)
 static uint32_t lostAtStop;
@@ -107,7 +110,7 @@ static bool drvSetConfig(uint8_t daddr, uint8_t itf) {
 }
 
 static void queue() {
-  if (usbh_edpt_claim(in.daddr, in.ep) && !usbh_edpt_xfer(in.daddr, in.ep, pkt, in.maxp)) {
+  if (usbh_edpt_claim(in.daddr, in.ep) && !usbh_edpt_xfer(in.daddr, in.ep, pkt[filling], in.maxp)) {
     usbh_edpt_release(in.daddr, in.ep);
     errors++;
   }
@@ -117,8 +120,10 @@ static bool drvXfer(uint8_t daddr, uint8_t ep, xfer_result_t result, uint32_t n)
   if (daddr != in.daddr || ep != in.ep) {
     return false;
   }
+  const uint8_t* got = pkt[filling];
+  filling ^= 1;
   if (streaming) {
-    queue();  // the next one first: it's due in the next frame
+    queue();  // the next one first, into the other buffer: it's due in the next frame
   }
   if (result != XFER_RESULT_SUCCESS) {
     errors++;
@@ -128,7 +133,7 @@ static bool drvXfer(uint8_t daddr, uint8_t ep, xfer_result_t result, uint32_t n)
   n &= ~3u;  // whole stereo frames (or pairs of mono ones)
   bytes += n;
   // the peaks, for the meter
-  int16_t* s = (int16_t*)pkt;
+  const int16_t* s = (const int16_t*)got;
   uint16_t pk[2] = {0, 0};
   for (uint32_t i = 0; i < n / 2; i++) {
     int v = s[i] < 0 ? -s[i] : s[i];
@@ -147,8 +152,8 @@ static bool drvXfer(uint8_t daddr, uint8_t ep, xfer_result_t result, uint32_t n)
     return true;
   }
   uint32_t at = w % RING, first = n < RING - at ? n : RING - at;
-  memcpy(ring + at, pkt, first);
-  memcpy(ring, pkt + first, n - first);
+  memcpy(ring + at, got, first);
+  memcpy(ring, got + first, n - first);
   ringW = w + n;
   return true;
 }

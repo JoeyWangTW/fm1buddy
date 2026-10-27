@@ -168,11 +168,29 @@ static void pulses() {
 static void keyTask(void*) {
   esp_task_wdt_delete(xTaskGetIdleTaskHandleForCore(0));  // (core 0's idle task doesn't run meanwhile)
   pinsBegin();
-  // the FM-1 off first: nothing pulls D+ up (it does as soon as it's on, as its firmware or as its boot loader)
+  // the FM-1 off first: nothing pulls D+ up. Quiet isn't enough: a firmware that's on lets D+ go while there's nothing
+  // on the bus (SLOOP and the other Felucca ones did, as fm1buddy restarted into this mode), and pulls it up again at
+  // the first sign of one. So a packet every 50 ms meanwhile: off is a whole second of D+ down through those
   state = hal::KEY_OFF;
-  for (int low = 0; low < 50; vTaskDelay(1)) {
-    low = dp() ? 0 : low + 1;
+  for (uint32_t downSince = millis(), poked = 0; millis() - downSince < 1000;) {
+    if (millis() - poked >= 50) {
+      packet();
+      release();
+      poked = millis();
+    }
+    bool up = false;
+    for (int i = 0; i < 4 && !up; i++) {  // (a firmware takes a moment to answer: a few looks over the next ms)
+      up = dp();
+      if (!up) {
+        esp_rom_delay_us(250);
+      }
+    }
+    if (up) {
+      downSince = millis();
+    }
+    vTaskDelay(1);
   }
+  hal::log("key: the FM-1 is off (or unplugged)");
   state = hal::KEY_SENDING;
   hal::log("key: sending 0x%04X: switch the FM-1 on", KEY_WORD);
   bool alive = false;

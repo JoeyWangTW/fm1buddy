@@ -27,8 +27,15 @@ struct Speaks {
   bool stockVoice;   // M-VAVE's read (0x23): its current voice
   bool felucca;      // Felucca's editor protocol (F0 7D 46 4C)
   bool open;         // M-VAVE Open's file protocol (F0 7D 46 4D 02)
-  char version[32];  // what Felucca said it is ("FELUCCA v1.6.1")
-  bool share;        // it shares a block (a foma firmware: fomajam's song)
+  char version[32];  // what Felucca said it is ("FELUCCA v1.6.1", "FELUCCA SLOOP 2.8")
+  bool sloop;        // it's SLOOP (sloop.h): proto 6 and up has backups
+  uint8_t proto, pcount;
+  uint8_t slots;  // SLOOP's user sample slots, and what's in them (SMP_INFO)
+  struct {
+    uint8_t zones;  // 0: empty
+    char name[9];
+  } slot[4];
+  bool share;  // it shares a block (a foma firmware: fomajam's song)
   uint32_t shareSize;
   char app[17], appVersion[9];  // the firmware that shares ("FOMAJAM", "0.1")
 };

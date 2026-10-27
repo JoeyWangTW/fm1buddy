@@ -6,6 +6,7 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <chrono>
@@ -14,6 +15,7 @@
 #include "fm1.h"
 #include "midi.h"
 #include "settings.h"
+#include "sloop.h"
 #include "uboot.h"
 
 namespace jobs {
@@ -41,7 +43,7 @@ static void progress(uint32_t d, uint32_t t) {
   total = t;
 }
 
-static const char* NAMES[] = {"none", "hub", "download", "scan", "join", "install", "probe", "send", "voice", "keep", "restore", "export", "backup", "prepare", "recover"};
+static const char* NAMES[] = {"none", "hub", "download", "scan", "join", "install", "probe", "send", "voice", "keep", "restore", "export", "backup", "prepare", "recover", "sloop backup", "sloop restore", "sloop project", "sloop samples"};
 
 static bool start(Kind k, void (*fn)(void*)) {
   if (running) {
@@ -134,6 +136,7 @@ static void hubJob(void*) {
   std::string etagPath = catalog::path(HUB_ETAG), cache = catalog::path(HUB_CACHE);
   struct stat st;
   std::string etag = stat(cache.c_str(), &st) ? "" : readText(etagPath);
+  hal::logRam("before the list");
   hal::log("job: getting the list (etag %s)", etag.c_str());
   int code = hal::get(HUB_SITE "catalog.json", cache.c_str(), &etag, progress, error);
   hal::log("job: HTTP %d", code);
@@ -150,7 +153,9 @@ static void hubJob(void*) {
     }
   }
   step = READING;
-  finish(catalog::parseHub(hub, hubUpdated, error));
+  bool ok = catalog::parseHub(hub, hubUpdated, error);
+  hal::logRam("the list read");
+  finish(ok);
 }
 
 // target from the Hub into /fm1: false (error says why)
@@ -194,10 +199,13 @@ static void downloadJob(void*) {
   finish(fetch());
 }
 
-static void installProgress(Fm1Step s, uint32_t, uint32_t addr) {
+static std::atomic<uint32_t> askedAt;  // the update loader's last request (hal::millis)
+
+static void installProgress(Fm1Step s, uint32_t bytes, uint32_t) {
   static const Step STEPS[] = {ASKING, VERIFYING, LOADER, WRITING, RESTARTING, RESTARTING};
   step = STEPS[s];
-  done = s == STEP_WRITE ? addr : 0;
+  done = s == STEP_WRITE ? bytes : 0;
+  askedAt = hal::millis();
 }
 
 // a new install record: /fm1buddy/installs/N.txt, the last 10 kept. name gets "installs/N.txt"
@@ -247,8 +255,11 @@ static void installJob(void*) {
     fprintf(rec, "known    %s\n\n",
             target.sha256.empty() ? "no (not on the Hub, nor one of M-VAVE's): not checked" : "yes: its sha256 checked");
     fflush(rec);
+    fsync(fileno(rec));
   }
-  total = pkg.size;
+  // what the update loader writes is the firmware (flash.bin: from the top down, a few header reads besides)
+  uint32_t at = 0, n = 0;
+  total = pkg.flash(at, n) ? n : pkg.size;
   step = ASKING;
   hal::bleHold(true);  // the radio stays out of it
   const char* e = fm1::install(pkg, installProgress, rec);
@@ -460,7 +471,9 @@ static void backupJob(void*) {
   }
   hal::bleHold(false);
   if (e) {
-    error = std::string(e) + (uboot::stuck() ? " Switch the FM-1 off and on to get it back." : "");
+    bool stuck = uboot::stuck();
+    hal::usbRestart();  // (whatever the boot loader left behind: the FM-1 is found again)
+    error = std::string(e) + (stuck ? " Switch the FM-1 off and on to get it back." : "");
     return finish(false);
   }
   finish(saveBackup(a, chip, was, false));
@@ -552,7 +565,8 @@ static void recoverJob(void*) {
   std::string from = recovering();
   std::vector<uint8_t> want, now, back;
   step = GETTING_READY;
-  const char* e = !hal::sd() ? "No SD card." : from.empty() ? "Nothing was chosen to go on it." : image(from, want);
+  const char* e = !hal::sd() ? "No SD card." : from.empty() ? "Nothing was chosen to go on it."
+                                                            : image(from, want);
   if (e) {
     error = e;
     return finish(false);
@@ -566,6 +580,14 @@ static void recoverJob(void*) {
   step = BOOT_LOADER;
   uboot::Chip chip;
   e = uboot::attach(chip);
+  if (e) {  // its firmware came instead (it was on all along, or the key was missed): say so
+    for (int d = 0; d < MIDI_USB; d++) {
+      if (fm1::candidate(d)) {
+        e = "It started its firmware, not its boot loader: it had power all along. Tap Try again, and unplug it as well "
+            "as switching it off.";
+      }
+    }
+  }
   if (!e && (chip.key != FM1_KEY || chip.flashId != FM1_FLASH || chip.size < WRITE_TO)) {
     e = "That isn't the FM-1's chip: nothing was written.";
   }
@@ -620,6 +642,7 @@ static void recoverJob(void*) {
   step = LEAVING;
   uboot::leave();
   if (e) {
+    hal::usbRestart();  // (whatever the boot loader left behind)
     error = std::string(e) + (sectors.empty() ? "" : " It may not start now: switch it off, and try again.");
     return finish(false);
   }
@@ -713,6 +736,65 @@ bool jobs::join(const char* s, const char* p) {
   return start(JOIN, joinJob);
 }
 
+// ------------------------------------------------------------------------------------------- SLOOP ---
+static std::string doing;  // WORKING: what ("Backing up")
+static std::string sloopFile;
+static int sloopFrom, sloopTo;
+
+static void sloopJob(void*) {
+  step = WORKING;
+  const char* e = 0;
+  saved.clear();
+  if (kind == SLOOP_BACKUP) {
+    doing = "Backing it up";
+    sloop::Info info;
+    e = sloop::info(device, info);
+    if (!e) {
+      e = sloop::backup(device, info, saved, progress);
+    }
+  } else if (kind == SLOOP_RESTORE) {
+    doing = "Backing it up, then restoring";
+    e = sloop::restore(device, sloopFile, saved, progress);
+  } else if (kind == SLOOP_PROJECT) {
+    doing = "Loading the project";
+    e = sloop::loadProject(device, sloopFile, sloopFrom, sloopTo, progress);
+  } else {
+    doing = "Loading the samples";
+    e = sloop::loadSamples(device, sloopFile, sloopTo, progress);
+  }
+  if (e) {
+    error = e;
+  }
+  finish(!e);
+}
+
+static bool sloopStart(Kind k, int d, const std::string& file, int from, int to) {
+  if (running) {
+    return false;
+  }
+  device = d;
+  sloopFile = file;
+  sloopFrom = from;
+  sloopTo = to;
+  return start(k, sloopJob);
+}
+
+bool jobs::sloopBackup(int d) {
+  return sloopStart(SLOOP_BACKUP, d, "", 0, 0);
+}
+
+bool jobs::sloopRestore(int d, const std::string& file) {
+  return sloopStart(SLOOP_RESTORE, d, file, 0, 0);
+}
+
+bool jobs::sloopProject(int d, const std::string& file, int from, int to) {
+  return sloopStart(SLOOP_PROJECT, d, file, from, to);
+}
+
+bool jobs::sloopSamples(int d, const std::string& source, int slot) {
+  return sloopStart(SLOOP_SAMPLES, d, source, 0, slot);
+}
+
 std::string jobs::status() {
   switch ((int)step) {
     case JOINING:
@@ -737,8 +819,14 @@ std::string jobs::status() {
     case LOADER:
       return "The FM-1 is starting its update loader...";
     case WRITING: {
+      // what a loader reads besides the firmware differs (header parts, other files): never past 99% until it's
+      // finished, and when it goes quiet after the data, it's checking or storing it, not stuck
       uint32_t t = total, d = done;
-      return "Writing " + std::to_string(t ? (unsigned long long)d * 100 / t : 0) + "%: keep the FM-1 plugged in";
+      if (d && hal::millis() - askedAt > 2000) {
+        return "The FM-1 is finishing the update: keep it plugged in";
+      }
+      unsigned long long pct = t ? (unsigned long long)d * 100 / t : 0;
+      return "Writing " + std::to_string(pct > 99 ? 99 : pct) + "%: keep the FM-1 plugged in";
     }
     case RESTARTING:
       return "The FM-1 is restarting...";
@@ -770,13 +858,13 @@ std::string jobs::status() {
     case KEYING:
       switch (hal::keyState()) {
         case hal::KEY_OFF:
-          return "Something is on the USB port: switch the FM-1 off (and no hub).";
+          return "Unplug the FM-1, and switch it off.";
         case hal::KEY_ANSWERED:
           return "It answered! Its boot loader is starting...";
         case hal::KEY_HOST:
           return "Its boot loader is starting...";
       }
-      return "Switch the FM-1 on now.";
+      return "Now plug the FM-1 back in, and switch it on.";
     case SAVING:
       return "Saving its flash as it was...";
     case WRITING_FLASH: {
@@ -786,6 +874,10 @@ std::string jobs::status() {
     case CHECKING_FLASH: {
       uint32_t t = total, d = done;
       return "Checking it " + std::to_string(t ? (unsigned long long)d * 100 / t : 0) + "%...";
+    }
+    case WORKING: {
+      uint32_t t = total, d = done;
+      return doing + (t ? " " + std::to_string((unsigned long long)d * 100 / t) + "%..." : std::string("..."));
     }
     case GETTING: {
       uint32_t t = total, d = done;

@@ -76,10 +76,8 @@ void ui::backupPage(lv_obj_t* page) {
   lv_obj_t* body = scroller(page);
   lv_obj_set_style_pad_row(body, 4, 0);
   shownSeq = midi::seq;
-  wrapped(body,
-          "All of its flash, to the SD card: the firmware, and what the firmwares keep on it (settings, projects, "
-          "samples, voices). Nothing on it changes.",
-          t.text);
+  wrapped(body, "All of its flash to the SD card: its firmware, settings, projects and samples. Nothing on it changes.",
+          t.dim);
   int d = fm1::current();
   const Fm1Id* id = d >= 0 ? fm1::known(d) : 0;
   int others = 0;
@@ -102,11 +100,6 @@ void ui::backupPage(lv_obj_t* page) {
                                 : "The FM-1 is there.";
     wrapped(body, what.c_str(), d < 0 || others ? t.knob[0] : t.dim);
   }
-  wrapped(body,
-          "It goes into its boot loader (in the chip: no firmware can break it) and comes back. That works from stock "
-          "V15 and the firmwares like fomajam. The first time, JieLi's loader for it is downloaded (Wi-Fi) from "
-          "jl-uboot-tool.",
-          t.dim);
 
   // the backups
   lv_obj_t* h = label(body, "On the SD card (" BACKUPS_DIR ")", &lv_font_montserrat_14, t.text);
