@@ -1,5 +1,6 @@
 // Settings: Wi-Fi, the theme, the brightness, the Hub's list, and what's on the SD card
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "catalog.h"
@@ -17,6 +18,7 @@ static void startOnPage(lv_obj_t* page);
 static void computerPage(lv_obj_t* page);
 static void aboutPage(lv_obj_t* page);
 static void passwordPage(lv_obj_t* page);
+static void touchCalPage(lv_obj_t* page);
 
 static void goTo(lv_event_t* e) {
   go((Builder)lv_event_get_user_data(e));
@@ -58,6 +60,9 @@ void ui::settingsPage(lv_obj_t* page) {
   menuRow(body, LV_SYMBOL_WIFI "  Wi-Fi", settings.ssid[0] ? settings.ssid : "not set", wifiPage);
   menuRow(body, LV_SYMBOL_IMAGE "  Theme", t.name, themePage);
   menuRow(body, LV_SYMBOL_HOME "  Start on", START_NAMES[startPage()], startOnPage);
+  hal::TouchCal c;
+  menuRow(body, LV_SYMBOL_EDIT "  Touch", hal::load("touchcal", &c, sizeof c) ? "calibrated" : "calibrate",
+          touchCalPage);
 
   lv_obj_t* r = listRow(body, 0, 0);
   lv_obj_set_style_pad_right(r, 16, 0);
@@ -225,6 +230,165 @@ static void passwordPage(lv_obj_t* page) {
   lv_obj_add_event_cb(kb, keys, LV_EVENT_CANCEL, 0);
   tick = showJoin;
   jobDone = joined;
+}
+
+// ----------------------------------------------------------------------------------------------- touch ---
+// a dot near each corner in turn: the panel's raw readings at each (no calibration meanwhile), and from them where it
+// puts the edges. Saved ("touchcal"), and on from power-on (ui::begin). Then a marker follows the finger, to check it
+static const int16_t CAL_X[4] = {TOUCH_CAL_IN, SCREEN_W - 1 - TOUCH_CAL_IN, SCREEN_W - 1 - TOUCH_CAL_IN, TOUCH_CAL_IN};
+static const int16_t CAL_Y[4] = {TOUCH_CAL_IN, TOUCH_CAL_IN, SCREEN_H - 1 - TOUCH_CAL_IN, SCREEN_H - 1 - TOUCH_CAL_IN};
+static int calStep, calN;
+static int32_t calSx, calSy;
+static int16_t calGot[4][2];
+static bool calDown, calArmed;  // armed: no finger seen yet since it opened (the one that opened it doesn't count)
+static lv_obj_t *calTarget, *calTitle, *calText, *calTaps, *calDone, *calMark;
+
+static lv_obj_t* ring(lv_obj_t* page, int size, uint32_t c) {
+  lv_obj_t* o = lv_obj_create(page);
+  lv_obj_add_flag(o, LV_OBJ_FLAG_FLOATING);
+  lv_obj_remove_flag(o, (lv_obj_flag_t)(LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE));
+  lv_obj_set_size(o, size, size);
+  lv_obj_set_style_pad_all(o, 0, 0);
+  lv_obj_set_style_radius(o, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_bg_opa(o, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(o, 3, 0);
+  lv_obj_set_style_border_color(o, color(c), 0);
+  lv_obj_t* dot = lv_obj_create(o);
+  lv_obj_remove_flag(dot, (lv_obj_flag_t)(LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE));
+  lv_obj_set_size(dot, 7, 7);
+  lv_obj_center(dot);
+  lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_border_width(dot, 0, 0);
+  lv_obj_set_style_bg_color(dot, color(c), 0);
+  return o;
+}
+
+static void calShow() {
+  bool measuring = calStep < 4;
+  lv_obj_update_flag(calTarget, LV_OBJ_FLAG_HIDDEN, !measuring);
+  lv_obj_update_flag(calTaps, LV_OBJ_FLAG_HIDDEN, !measuring);
+  lv_obj_update_flag(calDone, LV_OBJ_FLAG_HIDDEN, measuring);
+  lv_obj_add_flag(calMark, LV_OBJ_FLAG_HIDDEN);
+  if (measuring) {
+    lv_obj_set_pos(calTarget, CAL_X[calStep] - 16, CAL_Y[calStep] - 16);
+    lv_label_set_text(calTitle, "Tap the dot");
+    lv_label_set_text_fmt(calText, "Right on its middle. %d of 4.", calStep + 1);
+  } else {
+    lv_label_set_text(calTitle, "Calibrated");
+    lv_label_set_text(calText, "Touch anywhere to check it: the circle should be right under your finger.");
+  }
+}
+
+// every 10 ms (its own timer: the pages' tick is every 100 ms, too slow for a quick tap), until the page goes
+static lv_timer_t* calTimer;
+
+static void calTick(lv_timer_t*) {
+  if (!lv_obj_is_valid(calTarget)) {
+    lv_timer_delete(calTimer);
+    calTimer = 0;
+    return;
+  }
+  hal::Finger f;
+  bool down = hal::fingers(&f, 1);
+  if (calStep >= 4) {  // checking it: the marker where the finger is
+    lv_obj_update_flag(calMark, LV_OBJ_FLAG_HIDDEN, !down);
+    if (down) {
+      lv_obj_set_pos(calMark, f.x - 16, f.y - 16);
+    }
+    return;
+  }
+  if (!calArmed) {
+    calArmed = !down;
+    return;
+  }
+  if (down) {
+    calSx += f.x, calSy += f.y, calN++;
+    calDown = true;
+    return;
+  }
+  if (!calDown) {
+    return;
+  }
+  calDown = false;
+  int16_t x = calN ? (int16_t)(calSx / calN) : 0, y = calN ? (int16_t)(calSy / calN) : 0;
+  bool near = abs(x - CAL_X[calStep]) < 60 && abs(y - CAL_Y[calStep]) < 60;  // (a panel isn't that far off)
+  int n = calN;
+  calSx = calSy = calN = 0;
+  if (!n || !near) {  // a touch somewhere else
+    return;
+  }
+  calGot[calStep][0] = x;
+  calGot[calStep][1] = y;
+  hal::log("touch: dot %d: %d, %d (%d readings)", calStep + 1, x, y, n);
+  if (++calStep < 4) {
+    calShow();
+    return;
+  }
+  hal::TouchCal c;
+  c.x0 = (calGot[0][0] + calGot[3][0]) / 2, c.x1 = (calGot[1][0] + calGot[2][0]) / 2;
+  c.y0 = (calGot[0][1] + calGot[1][1]) / 2, c.y1 = (calGot[2][1] + calGot[3][1]) / 2;
+  if (c.x1 - c.x0 < SCREEN_W / 2 || c.y1 - c.y0 < SCREEN_H / 2) {  // (not taps on the dots)
+    calStep = 0;
+    calShow();
+    lv_label_set_text(calText, "That didn't look right. Again, from this one.");
+    return;
+  }
+  hal::save("touchcal", &c, sizeof c);
+  hal::touchCal(&c);
+  hal::log("touch: calibrated: x %d-%d, y %d-%d", c.x0, c.x1, c.y0, c.y1);
+  calShow();
+}
+
+static void calLeave(lv_event_t*) {
+  hal::TouchCal c;
+  hal::touchCal(hal::load("touchcal", &c, sizeof c) ? &c : 0);  // (as saved: the new one, or as it was)
+  go(SETTINGS, settingsPage);
+}
+
+static void calAgain(lv_event_t*) {
+  go(touchCalPage);
+}
+
+static void calReset(lv_event_t*) {
+  hal::save("touchcal", "", 1);  // (not a calibration's size: none, as load sees it)
+  hal::touchCal(0);
+  go(SETTINGS, settingsPage);
+}
+
+static void touchCalPage(lv_obj_t* page) {
+  const Theme& t = theme();
+  fullscreen(true);
+  hal::touchCal(0);  // (the panel as it reads, while it's measured)
+  calStep = calN = 0, calSx = calSy = 0, calDown = calArmed = false;
+  lv_obj_t* mid = box(page);
+  lv_obj_set_width(mid, 230);
+  lv_obj_add_flag(mid, LV_OBJ_FLAG_FLOATING);
+  lv_obj_align(mid, LV_ALIGN_CENTER, 0, 0);
+  lv_obj_set_flex_align(mid, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_row(mid, 6, 0);
+  calTitle = label(mid, "", &lv_font_montserrat_20, t.accent);
+  calText = label(mid, "", &lv_font_montserrat_14, t.text);
+  lv_label_set_long_mode(calText, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(calText, LV_PCT(100));
+  lv_obj_set_style_text_align(calText, LV_TEXT_ALIGN_CENTER, 0);
+  // while it's measured: only a way out
+  calTaps = box(mid, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(calTaps, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  button(calTaps, "Cancel", calLeave);
+  // then: keep it, again, or none
+  calDone = box(mid, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(calDone, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_column(calDone, 6, 0);
+  button(calDone, LV_SYMBOL_OK " Done", calLeave);
+  button(calDone, "Again", calAgain);
+  button(calDone, "Reset", calReset);
+  calTarget = ring(page, 33, t.accent);
+  calMark = ring(page, 33, t.knob[1]);
+  calShow();
+  if (calTimer) {
+    lv_timer_delete(calTimer);  // (Again: the page anew, one timer)
+  }
+  calTimer = lv_timer_create(calTick, 10, 0);
 }
 
 // ----------------------------------------------------------------------------------------------- theme ---

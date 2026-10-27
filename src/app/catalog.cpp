@@ -110,9 +110,19 @@ static void readEntry(JsonObjectConst e, Firmware& f) {
   }
 }
 
+// the list in the PSRAM (hal::psramFirst): read, it's 80+ KB of small blocks while it's made, and 40+ KB kept
+static bool parseHubIn(std::vector<Firmware>& out, std::string& updated, std::string& err);
+
 bool catalog::parseHub(std::vector<Firmware>& out, std::string& updated, std::string& err) {
+  hal::psramFirst(true);
+  bool ok = parseHubIn(out, updated, err);
+  hal::psramFirst(false);
+  return ok;
+}
+
+static bool parseHubIn(std::vector<Firmware>& out, std::string& updated, std::string& err) {
   std::string text;
-  if (!readAll(path(HUB_CACHE), text)) {
+  if (!readAll(catalog::path(HUB_CACHE), text)) {
     err = "The Hub's list isn't on the SD card yet.";
     return false;
   }

@@ -80,6 +80,12 @@ int midi::loadMap() {
   std::vector<MapRule> r;
   std::string why;
   std::string path = catalog::path(MAP_FILE);
+  if (!path.empty() && midimap::damaged(path.c_str())) {  // put aside (as it is, to look at), and a new one
+    std::string aside = path + ".broken";
+    remove(aside.c_str());
+    rename(path.c_str(), aside.c_str());
+    hal::log("midi: " MAP_FILE " was damaged: it's " MAP_FILE ".broken now, and a new one is written");
+  }
   if (!path.empty() && !midimap::load(path.c_str(), r, why)) {
     midimap::writeHelp(path.c_str());  // (no rules: as without one)
   }
@@ -325,6 +331,14 @@ void midi::service(int from, int to) {
 }
 
 // ---------------------------------------------------------------------------------------- anywhere ---
+uint32_t midi::waiting(int d) {
+  if (d < 0 || d >= MIDI_DEVS) {
+    return 0;
+  }
+  std::lock_guard<std::mutex> g(lock);
+  return slots[d].ow - slots[d].orr;
+}
+
 bool midi::dev(int d, Dev& out) {
   if (d < 0 || d >= MIDI_DEVS) {
     return false;

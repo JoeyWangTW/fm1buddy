@@ -45,7 +45,8 @@ enum Fm1Step { STEP_START,
                STEP_REBOOT,
                STEP_DONE };
 
-typedef void (*Fm1Progress)(Fm1Step step, uint32_t served, uint32_t addr);
+// bytes: of the image sent so far in this step (asked again: once), whatever order the device asks in
+typedef void (*Fm1Progress)(Fm1Step step, uint32_t bytes, uint32_t addr);
 
 namespace fm1 {
 // a full install: running firmware -> loader -> new firmware; or, with the FM-1 already in update mode (the loader),

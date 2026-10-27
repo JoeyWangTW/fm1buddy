@@ -10,8 +10,11 @@ void usbBegin();      // the USB host, unless a computer is on the port (after t
 void usbHostBegin();  // usb_s3.cpp
 void diskBegin();     // disk_s3.cpp: the USB port as a USB drive (the SD card), in USB disk mode
 void loop();
-// testing over the serial console: "host" starts as the USB host once (for 20 s), "log" prints the SD card's log
-void hostTestStart();
+// testing over the serial console: "host" starts as the USB host once (for 40 s), "log" prints the SD card's log.
+// script: what to do meanwhile, "tap X Y", "wait MS" and "usbrestart" (hal::usbRestart) between ';' (the console
+// can't: the port is the host then)
+void hostTestStart(const char* script);
+const char* hostTestScript();
 void printLog();
 // USB MIDI for a computer (computer_s3.cpp): the port as a USB MIDI device, it's on, MIDI to it (device 0)
 void computerBegin();

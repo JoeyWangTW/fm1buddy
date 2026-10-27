@@ -196,6 +196,14 @@ bool midimap::load(const char* path, std::vector<MapRule>& out, std::string& pro
   }
   char line[160];
   for (int ln = 1; fgets(line, sizeof line, f); ln++) {
+    if (!strchr(line, '\n') && !feof(f)) {  // longer than a rule can be: the rest of it skipped, not a line of its own
+      for (int c; (c = fgetc(f)) != EOF && c != '\n';) {
+      }
+      if (problem.empty()) {
+        problem = "line " + std::to_string(ln) + ": too long";
+      }
+      continue;
+    }
     MapRule r;
     const char* why;
     if (parse(line, r, &why)) {
@@ -240,12 +248,28 @@ static const char HELP[] =
     "# The rules are read when fm1buddy starts, when MIDI routing is turned on, and with the reload button on the\n"
     "# MIDI page. The MIDI page's Mapping can also add and delete rules here, by touch.\n";
 
+bool midimap::damaged(const char* path) {
+  FILE* f = fopen(path, "rb");
+  if (!f) {
+    return false;
+  }
+  bool zero = false;
+  for (int c; !zero && (c = fgetc(f)) != EOF;) {
+    zero = c == 0;
+  }
+  fclose(f);
+  return zero;
+}
+
 bool midimap::writeHelp(const char* path) {
   FILE* f = fopen(path, "w");
   if (!f) {
     return false;
   }
-  bool ok = fputs(HELP, f) >= 0;
+  // from RAM: HELP is in flash, and the SD card's DMA reads a write that big straight from where it is (on the board
+  // its whole sectors came out as zeros)
+  std::string text(HELP);
+  bool ok = fwrite(text.data(), 1, text.size(), f) == text.size();
   return !fclose(f) && ok;
 }
 

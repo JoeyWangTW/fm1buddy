@@ -12,6 +12,11 @@ namespace hal {
 uint32_t millis();
 // a line for the serial console (the terminal, in the simulator)
 void log(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
+// the internal RAM (small blocks, Wi-Fi's and the USB host's) in the log: free, and the biggest block, at what
+void logRam(const char* what);
+// on: small blocks too go to the PSRAM first (only big ones do otherwise), while something big is made of many small
+// ones and kept (the Hub's list: its JSON, and 100+ firmwares' strings), so it doesn't take the internal RAM Wi-Fi needs
+void psramFirst(bool on);
 
 // the SD card's root, for fopen and opendir ("/sdcard"), or 0 without a card
 const char* sd();
@@ -48,12 +53,19 @@ bool usbHost();
 // up to n USB MIDI packets (4 bytes each) to device d (midi.h: USB or Bluetooth): how many it took. From
 // midi::service
 uint32_t midiOut(int d, const uint8_t* packets, uint32_t n);
+// bytes of packets that went out to device d so far (the USB host done with them): for the install record
+uint32_t midiSent(int d);
 // a USB storage device with this VID:PID on the hub (the FM-1's boot loader, uboot.h), spoken to in SCSI commands
 // (Bulk-Only Transport), from a job: it's there (its endpoints open)
 bool storageThere(uint16_t vid, uint16_t pid);
+// it's on the hub, open or not (there, but not storageThere: it couldn't be opened)
+bool storageSeen(uint16_t vid, uint16_t pid);
 // one command to it (cdb: cdbLen bytes, up to 16) and its data: len (up to 512) bytes in from it into buf, or out from
 // buf; true if it answered with status 0. *got: how many came in. Waits up to ms
 bool storageCommand(const uint8_t* cdb, uint8_t cdbLen, bool in, uint8_t* buf, uint32_t len, uint32_t* got, uint32_t ms);
+// the USB host started again from nothing (every device found again): after the FM-1's boot loader went wrong mid-way
+// (its chip reset under it), which can leave the host stuck, seeing nothing new until then. Waits for it
+void usbRestart();
 
 // Bluetooth MIDI: off (not even started) until it's turned on (the app saves the switch). Phones and computers connect to
 // "fm1buddy"; keyboards and synths are found while searching, and tapping one connects it (and remembers it, to
@@ -111,6 +123,14 @@ struct Finger {
   uint8_t id, weight, area;
 };
 int fingers(Finger* out, int max);
+// the touch panel's calibration (Settings > Touch): where the panel said its four targets were, TOUCH_CAL_IN pixels in
+// from the screen's edges (left and right x, top and bottom y), so its readings are stretched onto the screen. 0: none
+// (the panel as it reads)
+#define TOUCH_CAL_IN 24
+struct TouchCal {
+  int16_t x0, x1, y0, y1;
+};
+void touchCal(const TouchCal* c);
 
 // run fn on a thread of its own (on the board: with that much stack, at that priority; 1 is a job's)
 void spawn(void (*fn)(void*), void* arg, uint32_t stack = 16384, int priority = 1);
