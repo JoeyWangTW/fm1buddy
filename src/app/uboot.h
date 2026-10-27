@@ -33,6 +33,7 @@ struct Chip {
   uint16_t key;      // its chip key (0x980F)
   uint32_t flashId;  // its flash's JEDEC id (0x856014: 1 MiB)
   uint32_t size;     // the flash's size
+  uint32_t io;       // the most a read moves at once: its loader's USB buffer (512 if it doesn't say)
 };
 // device d (an FM-1, alone on the hub) into its boot loader, and the loader running in it; 0 or an error
 const char* enter(int d, Chip& chip);

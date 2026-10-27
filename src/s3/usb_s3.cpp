@@ -122,7 +122,7 @@ static bool xferSync(uint8_t ep, void* buf, uint16_t len, uint32_t* got, uint32_
     }
   }
   if (got) {
-    *got = xlen;
+    *got = xlen > len ? len : xlen;  // (never more than the buffer)
   }
   if (xres != XFER_RESULT_SUCCESS) {
     snprintf(xwhy, sizeof xwhy, "ep %02X: result %d after %u ms", ep, (int)xres, (unsigned)(millis() - start));
@@ -233,7 +233,7 @@ static bool storageRun() {
 
 static bool storageTry() {
   // (DMA: aligned, and whole words: csw is 13 bytes, its buffer more)
-  alignas(4) static uint8_t cbw[32], csw[64], data[512];
+  alignas(4) static uint8_t cbw[32], csw[64], data[STORAGE_IO_MAX];
   if (!stor.daddr || !stor.in || !stor.out || cmd.len > sizeof data) {
     return false;
   }
@@ -257,6 +257,9 @@ static bool storageTry() {
     if (!xferSync(cmd.in ? stor.in : stor.out, data, cmd.len, &cmd.got, cmd.ms)) {
       return false;
     }
+    if (cmd.got > cmd.len) {  // (never more than was asked for, whatever came: a device out of step sent more once,
+      cmd.got = cmd.len;      // and that much into a 16-byte answer crashed it)
+    }
     if (cmd.in) {
       memcpy(cmd.buf, data, cmd.got);
     }
@@ -268,6 +271,8 @@ static bool storageTry() {
   }
   if (n != 13 || memcmp(csw, "USBS", 4) || memcmp(csw + 4, &tag, 4)) {
     stage = "its status (not one: out of step)";
+    snprintf(xwhy, sizeof xwhy, "%u bytes of %u came, then %u: %02X %02X %02X %02X", (unsigned)cmd.got,
+             (unsigned)cmd.len, (unsigned)n, csw[0], csw[1], csw[2], csw[3]);
     return false;
   }
   if (csw[12]) {

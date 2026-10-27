@@ -707,6 +707,10 @@ bool fake::storage(const uint8_t* cdb, uint8_t cdbLen, bool in, uint8_t* buf, ui
     buf[2] = 3, buf[4] = 0x14, buf[5] = 0x60, buf[6] = 0x85;
     return true;
   }
+  if (cmd == 0xFC14) {  // GET_USB_BUFFER_SIZE: 4 KiB (big endian)
+    buf[4] = 0x10;
+    return true;
+  }
   if (cmd == 0xFB01 && addr % 0x1000 == 0 && addr < ub.flash.size()) {  // ERASE_SECTOR
     memset(&ub.flash[addr], 0xFF, 0x1000);
     return true;
