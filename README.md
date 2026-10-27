@@ -1,5 +1,7 @@
 # fm1buddy
 
+[![video](https://img.youtube.com/vi/mT8rAArBcnE/hqdefault.jpg)](https://www.youtube.com/watch?v=mT8rAArBcnE)
+
 All without a computer/phone/etc:
 
 - Switch the M-VAVE FM-1's firmware, on the fly (from the SD card, or the [FM-1 Firmware Hub](https://thefirmwarehub.com) and download over Wi-Fi, from [the firmware hub](https://thefirmwarehub.com/))
