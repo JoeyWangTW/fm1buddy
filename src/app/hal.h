@@ -57,10 +57,14 @@ uint32_t midiOut(int d, const uint8_t* packets, uint32_t n);
 uint32_t midiSent(int d);
 // a USB storage device with this VID:PID on the hub (the FM-1's boot loader, uboot.h), spoken to in SCSI commands
 // (Bulk-Only Transport), from a job: it's there (its endpoints open)
+// the most one storageCommand moves: one USB transfer, and the S3's USB controller counts at most 127 packets in one
+// (OTG_PACKET_COUNT_WIDTH 7: 8128 bytes of 64), which TinyUSB doesn't split. A 16 KiB read came cut at 8 KiB, the rest
+// of it then in the answers to the next commands. 4 KiB: 64 packets
+#define STORAGE_IO_MAX 4096
 bool storageThere(uint16_t vid, uint16_t pid);
 // it's on the hub, open or not (there, but not storageThere: it couldn't be opened)
 bool storageSeen(uint16_t vid, uint16_t pid);
-// one command to it (cdb: cdbLen bytes, up to 16) and its data: len (up to 512) bytes in from it into buf, or out from
+// one command to it (cdb: cdbLen bytes, up to 16) and its data: len (up to STORAGE_IO_MAX) bytes in from it into buf, or out from
 // buf; true if it answered with status 0. *got: how many came in. Waits up to ms
 bool storageCommand(const uint8_t* cdb, uint8_t cdbLen, bool in, uint8_t* buf, uint32_t len, uint32_t* got, uint32_t ms);
 // the USB host started again from nothing (every device found again): after the FM-1's boot loader went wrong mid-way

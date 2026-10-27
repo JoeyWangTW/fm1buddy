@@ -2,6 +2,7 @@
 
 #include <string.h>
 
+#include <algorithm>
 #include <chrono>
 #include <thread>
 
@@ -24,6 +25,7 @@
 #define READ_KEY 0xFC09
 #define GET_ONLINE_DEVICE 0xFC0A
 #define RUN_APP 0xFC0C
+#define GET_USB_BUFFER 0xFC14
 
 static void wait(uint32_t ms) {
   std::this_thread::sleep_for(std::chrono::milliseconds(ms));
@@ -189,21 +191,46 @@ const char* uboot::attach(Chip& chip) {
   chip.flashId = resp[4] | resp[5] << 8 | resp[6] << 16 | (uint32_t)resp[7] << 24;
   uint8_t cap = chip.flashId & 0xFF;  // JEDEC: its size, as a power of 2
   chip.size = cap >= 0x10 && cap <= 0x18 ? 1u << cap : 1024 * 1024;
-  hal::log("uboot: chip key %04X, flash %06X (%u KiB)", chip.key, (unsigned)chip.flashId, (unsigned)chip.size / 1024);
+  // reads as big as it takes: each is a command, its data and its status, so 512 bytes at a time is slow (two readings
+  // of 1 MiB took 8 s, and SLOOP's chip resets 4 s into its boot loader)
+  // What it says (the FM-1's: 32 KiB) isn't taken on trust either: one read that big first (up to STORAGE_IO_MAX), and
+  // smaller if that doesn't come back whole
+  chip.io = IO;
+  if (exec(GET_USB_BUFFER, 0, 0, resp, 2, 1000)) {
+    uint32_t b = (uint32_t)resp[2] << 24 | resp[3] << 16 | resp[4] << 8 | resp[5];
+    hal::log("uboot: its USB buffer: %u (%02X %02X %02X %02X)", (unsigned)b, resp[2], resp[3], resp[4], resp[5]);
+    for (uint32_t io = std::min<uint32_t>(b, STORAGE_IO_MAX) / IO * IO; io > IO; io /= 2) {
+      std::vector<uint8_t> test(io);
+      uint8_t a[6], cdb[16];
+      be32(a, 0);
+      a[4] = io >> 8, a[5] = io & 0xFF;
+      cdbOf(cdb, READ_FLASH, a, 6);
+      uint32_t got = 0;
+      if (hal::storageCommand(cdb, 16, true, test.data(), io, &got, 2000) && got == io) {
+        chip.io = io;
+        break;
+      }
+      hal::log("uboot: reads of %u don't work", (unsigned)io);
+    }
+  }
+  hal::log("uboot: chip key %04X, flash %06X (%u KiB), reads of %u", chip.key, (unsigned)chip.flashId,
+           (unsigned)chip.size / 1024, (unsigned)chip.io);
   return 0;
 }
 
 const char* uboot::read(const Chip& chip, std::vector<uint8_t>& out, void (*progress)(uint32_t, uint32_t)) {
   out.assign(chip.size, 0);
-  for (uint32_t at = 0; at < chip.size; at += IO) {
+  uint32_t io = chip.io >= IO ? chip.io : IO;
+  for (uint32_t at = 0; at < chip.size; at += io) {
+    uint32_t n = std::min(io, chip.size - at);
     uint8_t args[6], cdb[16];
     be32(args, at);
-    args[4] = IO >> 8, args[5] = IO & 0xFF;
+    args[4] = n >> 8, args[5] = n & 0xFF;
     cdbOf(cdb, READ_FLASH, args, 6);
     bool ok = false;
     for (int t = 0; t < 3 && !ok; t++) {
       uint32_t got = 0;
-      ok = hal::storageCommand(cdb, 16, true, &out[at], IO, &got, 2000) && got == IO;
+      ok = hal::storageCommand(cdb, 16, true, &out[at], n, &got, 2000) && got == n;
       if (!ok) {
         hal::log("uboot: reading %06X: no answer (try %d)", (unsigned)at, t + 1);
       }
@@ -211,7 +238,7 @@ const char* uboot::read(const Chip& chip, std::vector<uint8_t>& out, void (*prog
     if (!ok) {
       return "It stopped answering.";
     }
-    if (progress && !(at % (16 * IO))) {
+    if (progress && !(at % (16 * io))) {
       progress(at + IO, chip.size);
     }
   }
