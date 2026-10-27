@@ -132,6 +132,22 @@ struct TouchCal {
 };
 void touchCal(const TouchCal* c);
 
+// USB audio in: a USB audio input on the hub (the FM-1's own sound, with Felucca and the firmwares built on it, such as
+// SLOOP; or any class-compliant 16-bit USB microphone or sound card), for recording. It streams while audioOn(true)
+// (from any thread), into a buffer audioRead takes from: 16-bit PCM, interleaved, at its rate
+struct AudioIn {
+  int dev;  // its MIDI device (for its name), -1 if it has none
+  uint32_t rate;
+  uint8_t channels;
+  bool on;                                   // streaming
+  uint32_t packets, lost, errors, overruns;  // since it started: a packet a millisecond
+  uint16_t peak[2];                          // since the last look, 0-32767 (left, right)
+};
+bool audioIn(AudioIn& out);  // false if there's none
+void audioOn(bool on);
+uint32_t audioRead(uint8_t* out, uint32_t max);  // what's waiting, up to max bytes (whole frames)
+uint32_t audioLost();                            // packets that never came, since it started
+
 // run fn on a thread of its own (on the board: with that much stack, at that priority; 1 is a job's)
 void spawn(void (*fn)(void*), void* arg, uint32_t stack = 16384, int priority = 1);
 }  // namespace hal

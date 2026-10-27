@@ -1,11 +1,13 @@
 #include "fake.h"
 
+#include <math.h>
 #include <string.h>
 
 #include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <map>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -960,4 +962,83 @@ void fake::begin(bool fm1, bool keys, bool faults, bool fomajam) {
     f.song[i] = (uint8_t)(i * 7 + i / 300);
   }
   std::thread(run, fm1, keys).detach();
+}
+
+// ------------------------------------------------------------------------------------------ USB audio in ---
+// the pretend FM-1's sound, while it runs: 44.1 kHz stereo, a 440 Hz tone on the left and 660 Hz on the right at half
+// level (to check a take by), made as time goes by and kept for audioRead (up to about 6 s, as on the board)
+#define AUDIO_RATE 44100
+#define AUDIO_KEEP (AUDIO_RATE * 6)  // frames
+static std::atomic<bool> audioStreaming{false};
+static std::mutex audioLock;
+static uint64_t audioMade, audioTaken;  // frames since it started
+static uint32_t audioStart;
+static uint32_t audioOverruns;
+static uint16_t audioPeak[2];
+
+static bool fm1Running() {
+  midi::Dev v;
+  return f.state == decltype(f.state)::RUN && midi::dev(FM1, v);
+}
+
+// what it has made by now
+static void audioCatchUp() {
+  if (!audioStreaming) {
+    return;
+  }
+  uint64_t due = (uint64_t)(hal::millis() - audioStart) * AUDIO_RATE / 1000;
+  if (due > audioMade) {
+    audioPeak[0] = audioPeak[1] = 16383;
+    audioMade = due;
+  }
+  if (audioMade - audioTaken > AUDIO_KEEP) {  // nobody read it: the oldest is lost
+    audioOverruns++;
+    audioTaken = audioMade - AUDIO_KEEP;
+  }
+}
+
+bool hal::audioIn(AudioIn& out) {
+  out = {};
+  if (!fm1Running()) {
+    return false;
+  }
+  std::lock_guard<std::mutex> g(audioLock);
+  audioCatchUp();
+  out.dev = FM1;
+  out.rate = AUDIO_RATE;
+  out.channels = 2;
+  out.on = audioStreaming;
+  out.packets = audioStreaming ? hal::millis() - audioStart : 0;
+  out.overruns = audioOverruns;
+  out.peak[0] = audioPeak[0];
+  out.peak[1] = audioPeak[1];
+  audioPeak[0] = audioPeak[1] = 0;
+  return true;
+}
+
+void hal::audioOn(bool on) {
+  std::lock_guard<std::mutex> g(audioLock);
+  if (on && !audioStreaming) {
+    audioStart = hal::millis();
+    audioMade = audioTaken = 0;
+    audioOverruns = 0;
+  }
+  audioStreaming = on && fm1Running();
+}
+
+uint32_t hal::audioRead(uint8_t* out, uint32_t max) {
+  std::lock_guard<std::mutex> g(audioLock);
+  audioCatchUp();
+  uint32_t n = 0;
+  int16_t* s = (int16_t*)out;
+  for (; audioTaken < audioMade && (n + 1) * 4 <= max; n++, audioTaken++) {
+    double t = (double)audioTaken / AUDIO_RATE;
+    s[n * 2] = (int16_t)(16383 * sin(2 * M_PI * 440 * t));
+    s[n * 2 + 1] = (int16_t)(16383 * sin(2 * M_PI * 660 * t));
+  }
+  return n * 4;
+}
+
+uint32_t hal::audioLost() {
+  return 0;
 }

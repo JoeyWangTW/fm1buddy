@@ -70,6 +70,7 @@ enum Start { START_FIRMWARE,
 extern const char* const START_NAMES[STARTS];
 int startPage();
 void soundsPage(lv_obj_t* page);
+void recordPage(lv_obj_t* page);       // the FM-1's USB audio to the SD card
 int soundsDev();                       // the device picked there
 const sounds::Speaks* soundsSpeaks();  // what it speaks (0 if it hasn't been asked yet)
 void soundsReprobe();                  // ask it again (after something changed it): a probe job

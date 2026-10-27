@@ -8,6 +8,7 @@
 #include "hal.h"
 #include "jobs.h"
 #include "midi.h"
+#include "record.h"
 #include "sounds.h"
 #include "ui_priv.h"
 
@@ -354,6 +355,14 @@ void ui::soundsPage(lv_obj_t* page) {
     }
   }
   pickDevice();
+
+  // recording the FM-1's sound
+  lv_obj_t* rr = listRow(body, [](lv_event_t*) { go(recordPage); }, 0);
+  label(rr, LV_SYMBOL_AUDIO "  Record audio", &lv_font_montserrat_16, t.text);
+  lv_obj_t* rv = line(rr, record::recording() ? "recording" : "", &lv_font_montserrat_12, t.knob[0]);
+  lv_obj_set_style_text_align(rv, LV_TEXT_ALIGN_RIGHT, 0);
+  lv_obj_set_flex_grow(rv, 1);
+  label(rr, LV_SYMBOL_RIGHT, &lv_font_montserrat_14, t.dim);
 
   // the device
   std::string opts;
