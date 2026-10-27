@@ -26,8 +26,61 @@ static RTC_NOINIT_ATTR uint32_t recoveryFlag;
 // the console's "host": the next start is the USB host even with a computer on it, for a while (testing)
 #define HOST_TEST 0x484F5354
 static RTC_NOINIT_ATTR uint32_t hostTest;
+static RTC_NOINIT_ATTR char hostScript[120];
 static uint32_t hostTestUntil;
 #define LOG_FILE "/sdcard/fm1buddy/log.txt"
+#define LOG_PREV "/sdcard/fm1buddy/log-1.txt"  // the run before
+
+// a crash, kept through the restart (RTC memory) and logged then: decode its addresses against the build's
+// firmware.elf (xtensa-esp32s3-elf-addr2line -pfiaC -e .pio/build/cyd-s3/firmware.elf ADDR...)
+#define CRASH_MAGIC 0x43524153
+static RTC_NOINIT_ATTR struct {
+  uint32_t magic;
+  int core;
+  char reason[48];
+  uint32_t pc, n;
+  uint32_t bt[24];
+} crash;
+
+static void onPanic(arduino_panic_info_t* info, void*) {
+  crash.core = info->core;
+  strlcpy(crash.reason, info->reason ? info->reason : "?", sizeof crash.reason);
+  crash.pc = (uint32_t)info->pc;
+  crash.n = info->backtrace_len < 24 ? info->backtrace_len : 24;
+  for (uint32_t i = 0; i < crash.n; i++) {
+    crash.bt[i] = info->backtrace[i];
+  }
+  crash.magic = CRASH_MAGIC;
+}
+
+static void logCrash() {
+  if (crash.magic != CRASH_MAGIC || crash.n > 24) {
+    crash.magic = 0;
+    return;
+  }
+  crash.magic = 0;
+  hal::log("crash: %s, core %d, pc %08X", crash.reason, crash.core, (unsigned)crash.pc);
+  for (uint32_t i = 0; i < crash.n; i += 12) {
+    char s[12 * 9 + 1];
+    uint32_t k = 0;
+    for (uint32_t j = i; j < crash.n && j < i + 12; j++) {
+      k += snprintf(s + k, sizeof s - k, "%08X ", (unsigned)crash.bt[j]);
+    }
+    hal::log("crash: backtrace %s", s);
+  }
+}
+
+// a new log for this run, the last one kept
+static bool newLog() {
+  remove(LOG_PREV);
+  rename(LOG_FILE, LOG_PREV);
+  FILE* f = fopen(LOG_FILE, "w");
+  if (!f) {
+    return false;
+  }
+  fclose(f);
+  return true;
+}
 static volatile bool wifiUp, radio;
 
 // lines from other tasks wait here for the main loop: only it writes them (to the SD card or the serial port)
@@ -65,6 +118,17 @@ static void flushLog() {
   }
 }
 
+void hal::psramFirst(bool on) {
+  heap_caps_malloc_extmem_enable(on ? 0 : CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL);  // (as the Arduino core has it)
+}
+
+void hal::logRam(const char* what) {
+  hal::log("ram: %s: %u KB internal free (biggest %u KB), %u KB PSRAM", what,
+           (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
+           (unsigned)(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) / 1024),
+           (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
+}
+
 void hal::log(const char* fmt, ...) {
   char buf[160];
   va_list a;
@@ -93,6 +157,7 @@ void hal::log(const char* fmt, ...) {
 
 void board::begin() {
   mainTask = xTaskGetCurrentTaskHandle();
+  set_arduino_panic_handler(onPanic, 0);
   logQ = (char (*)[160])heap_caps_malloc(LOG_Q * 160, MALLOC_CAP_SPIRAM);
   // (not heap_caps_malloc_extmem_enable(): small blocks must stay internal, the USB host's DMA can't reach PSRAM. The
   // big ones go there anyway: LVGL's pool, MIDI's buffers, TLS's)
@@ -119,11 +184,11 @@ void board::begin() {
   recoveryFlag = 0;
   if (recovery) {  // the FM-1 is on the port (not a computer): its USB lines are the key's (key_s3.cpp)
     mkdir("/sdcard/fm1buddy", 0777);
-    if (FILE* f = fopen(LOG_FILE, "w")) {
-      fclose(f);
+    if (newLog()) {
       logToSd = true;
     }
     hal::log("fm1buddy: recovery mode, last reset: %d", (int)esp_reset_reason());
+    logCrash();
     return;
   }
   // a computer on the USB-C port (it sends start-of-frames): stay its serial port. Else: the USB host
@@ -135,16 +200,17 @@ void board::begin() {
   }
   if ((!computer || hal::computerMidi()) && sdOk) {  // (USB MIDI for a computer: no serial port either)
     mkdir("/sdcard/fm1buddy", 0777);
-    if (FILE* f = fopen(LOG_FILE, "w")) {
-      fclose(f);
+    if (newLog()) {
       logToSd = true;
     }
   }
   if (test) {
-    hostTestUntil = millis() + 20000;
+    hostTestUntil = millis() + 40000;
+    hostScript[sizeof hostScript - 1] = 0;
   }
   hal::log("fm1buddy: sd %s, usb %s%s, last reset: %d", sdOk ? "mounted" : "none",
-           computer ? (hal::computerMidi() ? "USB MIDI (a computer)" : "serial (a computer)") : "host", test ? " (a test: 20 s)" : "", (int)esp_reset_reason());
+           computer ? (hal::computerMidi() ? "USB MIDI (a computer)" : "serial (a computer)") : "host", test ? " (a test: 40 s)" : "", (int)esp_reset_reason());
+  logCrash();
 }
 
 // the USB port back to the serial port: a restart (esp_restart) keeps the host's choice, and a computer on it
@@ -186,22 +252,29 @@ void board::loop() {
   }
 }
 
-void board::hostTestStart() {
+void board::hostTestStart(const char* script) {
+  strlcpy(hostScript, script ? script : "", sizeof hostScript);
   hostTest = HOST_TEST;
   esp_restart();
 }
 
+const char* board::hostTestScript() {
+  return hostTestUntil ? hostScript : "";
+}
+
 void board::printLog() {
-  FILE* f = fopen(LOG_FILE, "r");
-  if (!f) {
-    Serial.println("no log");
-    return;
+  for (const char* p : {LOG_PREV, LOG_FILE}) {
+    FILE* f = fopen(p, "r");
+    if (!f) {
+      continue;
+    }
+    Serial.printf("--- %s\n", p + 8);
+    char line[200];
+    while (fgets(line, sizeof line, f)) {
+      Serial.print(line);
+    }
+    fclose(f);
   }
-  char line[200];
-  while (fgets(line, sizeof line, f)) {
-    Serial.print(line);
-  }
-  fclose(f);
 }
 
 uint32_t hal::millis() {

@@ -38,6 +38,23 @@ static void touchBegin() {
 static int16_t tapX, tapY, toX, toY;
 static uint32_t tapUntil, dragAt;
 
+// the panel's calibration (hal::touchCal): on, and where its targets were
+static hal::TouchCal cal;
+static bool calOn;
+
+void hal::touchCal(const TouchCal* c) {
+  calOn = c;
+  if (c) {
+    cal = *c;
+  }
+}
+
+// a reading onto the screen: from where the panel put the targets (lo, hi) to where they are (TOUCH_CAL_IN from each
+// edge)
+static int stretch(int v, int lo, int hi, int size) {
+  return TOUCH_CAL_IN + (v - lo) * (size - 1 - 2 * TOUCH_CAL_IN) / (hi - lo);
+}
+
 // the fingers last read (both of them: the touch controller's), and when they were read
 static hal::Finger seen[2];
 static int nSeen;
@@ -52,6 +69,11 @@ static void readFingers() {
   seenAt = millis();
   uint8_t r[13];
   nSeen = 0;
+  if (tapUntil && (int32_t)(tapUntil - millis()) > 0) {  // the console's tap is a finger too (calibration, the pads)
+    seen[0] = {tapX, tapY, 0, 32, 2};
+    nSeen = 1;
+    return;
+  }
   Wire.beginTransmission(FT6336);
   Wire.write(0x02);
   if (Wire.endTransmission(false) || Wire.requestFrom(FT6336, 13) != 13) {
@@ -68,9 +90,14 @@ static void readFingers() {
     }
     // the panel is portrait: turned as the screen is (rotation 1)
     int px = (p[0] & 0x0F) << 8 | p[1], py = (p[2] & 0x0F) << 8 | p[3];
+    int x = py, y = H - 1 - px;
+    if (calOn && cal.x1 != cal.x0 && cal.y1 != cal.y0) {
+      x = stretch(x, cal.x0, cal.x1, W);
+      y = stretch(y, cal.y0, cal.y1, H);
+    }
     hal::Finger& f = seen[nSeen++];
-    f.x = (int16_t)constrain(py, 0, W - 1);
-    f.y = (int16_t)constrain(H - 1 - px, 0, H - 1);
+    f.x = (int16_t)constrain(x, 0, W - 1);
+    f.y = (int16_t)constrain(y, 0, H - 1);
     f.id = p[2] >> 4;
     f.weight = p[4];
     f.area = p[5] >> 4;
@@ -143,10 +170,10 @@ void setup() {
 }
 
 // the serial console (tools/s3.py): "shot" sends the screen (SHOT w h, then w*h RGB565 pixels, little-endian),
-// "tap x y" touches it for a moment, "drag x1 y1 x2 y2" slides a finger across it, "log" prints the SD card's log, "host" restarts as the USB host for 20 s, "usbmidi" restarts as USB MIDI for the
+// "tap x y" touches it for a moment, "drag x1 y1 x2 y2" slides a finger across it, "log" prints the SD card's log, "host [script]" restarts as the USB host for 40 s (and runs script: board.h), "crash" crashes (the next start logs it), "usbmidi" restarts as USB MIDI for the
 // computer (until it sends the SysEx that brings the serial port back: computer_s3.cpp)
 static void console() {
-  static char line[32];
+  static char line[160];
   static uint8_t n;
   // > 0: once the port is the USB host (Serial.end()), available() says -1
   while (!hal::usbHost() && Serial.available() > 0) {
@@ -162,8 +189,10 @@ static void console() {
     int x, y, x2, y2;
     if (!strcmp(line, "log")) {
       board::printLog();
-    } else if (!strcmp(line, "host")) {
-      board::hostTestStart();
+    } else if (!strncmp(line, "host", 4) && (!line[4] || line[4] == ' ')) {
+      board::hostTestStart(line[4] ? line + 5 : "");
+    } else if (!strcmp(line, "crash")) {
+      abort();  // (to test the crash report: hal_s3.cpp logCrash)
     } else if (!strcmp(line, "usbmidi")) {
       hal::computerMidiSet(true);  // (restarts as USB MIDI for this computer)
     } else if (!strcmp(line, "shot")) {
@@ -191,8 +220,35 @@ static void console() {
   }
 }
 
+// the host test's script (board::hostTestScript): one step at a time
+static void script() {
+  static const char* at;
+  static uint32_t next;
+  if (!at) {
+    at = board::hostTestScript();
+    next = millis() + 1000;  // (the app settles first)
+  }
+  if (!*at || (int32_t)(millis() - next) < 0) {
+    return;
+  }
+  int x, y, ms, n = 0;
+  if (sscanf(at, " tap %d %d%n", &x, &y, &n) == 2) {
+    tapX = x, tapY = y, dragAt = 0, tapUntil = millis() + 80;
+    next = millis() + 300;
+    hal::log("test: tap %d %d", x, y);
+  } else if (sscanf(at, " wait %d%n", &ms, &n) == 1) {
+    next = millis() + ms;
+  } else if (!strncmp(at + strspn(at, " "), "usbrestart", 10)) {
+    hal::log("test: usb restart");
+    hal::usbRestart();
+  }
+  const char* semi = strchr(at, ';');
+  at = semi ? semi + 1 : at + strlen(at);
+}
+
 void loop() {
   console();
+  script();
   board::loop();
   board::bleLoop();
   uint32_t wait = lv_timer_handler();

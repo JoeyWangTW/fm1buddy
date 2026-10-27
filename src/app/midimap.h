@@ -47,6 +47,8 @@ bool parse(const char* line, MapRule& r, const char** why);
 bool load(const char* path, std::vector<MapRule>& out, std::string& problem);
 // a file that only explains itself (no rules: everything as without one)
 bool writeHelp(const char* path);
+// it has zero bytes, as no text file does: damaged (on the card, a write that never made it)
+bool damaged(const char* path);
 // a rule as a line of the file (parse reads it back the same)
 std::string text(const MapRule& r);
 // in plain words, for the screen: "nanokey, notes 0-59 -> fm-1 ch 2, +12"

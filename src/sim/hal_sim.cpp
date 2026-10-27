@@ -25,6 +25,14 @@ uint32_t hal::millis() {
   return (uint32_t)duration_cast<milliseconds>(steady_clock::now() - t0).count();
 }
 
+void hal::logRam(const char*) {}
+
+void hal::psramFirst(bool) {}
+
+void hal::usbRestart() {}
+
+void hal::touchCal(const TouchCal*) {}
+
 void hal::log(const char* fmt, ...) {
   va_list a;
   va_start(a, fmt);
@@ -284,6 +292,10 @@ void hal::spawn(void (*fn)(void*), void* arg, uint32_t, int) {
 
 // ------------------------------------------------------------------------------------- storage ---
 // the pretend FM-1's boot loader (fake.cpp)
+bool hal::storageSeen(uint16_t vid, uint16_t pid) {
+  return fake::storageThere(vid, pid);
+}
+
 bool hal::storageThere(uint16_t vid, uint16_t pid) {
   return fake::storageThere(vid, pid);
 }

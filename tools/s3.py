@@ -5,7 +5,8 @@
 #   tools/s3.py tap X Y          touch it at X, Y (320x240, landscape)
 #   tools/s3.py drag X1 Y1 X2 Y2 slide a finger from X1, Y1 to X2, Y2 (to scroll)
 #   tools/s3.py log              print its log on the SD card (from when it was the USB host)
-#   tools/s3.py host             restart it as the USB host for 20 s (then it's back here): to test that
+#   tools/s3.py host [SCRIPT]    restart it as the USB host for 40 s (then it's back here): to test that. SCRIPT runs
+#                                meanwhile, as the console can't: "tap X Y" and "wait MS" between ';'
 #   tools/s3.py usbmidi          restart it as a USB MIDI device for this computer (Settings > On a computer)
 #   tools/s3.py serial           and back: sends it the SysEx that brings the serial port back (needs python-rtmidi)
 #
@@ -102,11 +103,11 @@ if __name__ == '__main__':
         drag(*map(int, a[1:]))
     elif a == ['log']:
         command('log', 2)
-    elif a == ['host']:
-        command('host', 0.5)
+    elif a[:1] == ['host'] and len(a) <= 2:
+        command(' '.join(['host'] + a[1:2]), 0.5)
     elif a == ['usbmidi']:
         command('usbmidi', 0.5)
     elif a == ['serial']:
         to_serial()
     else:
-        sys.exit('tools/s3.py shot FILE | tap X Y | drag X1 Y1 X2 Y2 | log | host | usbmidi | serial')
+        sys.exit('tools/s3.py shot FILE | tap X Y | drag X1 Y1 X2 Y2 | log | host [SCRIPT] | usbmidi | serial')

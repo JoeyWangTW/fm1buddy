@@ -425,6 +425,10 @@ void ui::rebuild() {
 void ui::begin() {
   settingsLoad();
   hal::backlight(settings.brightness);
+  hal::TouchCal cal;
+  if (hal::load("touchcal", &cal, sizeof cal)) {
+    hal::touchCal(&cal);
+  }
   bool bt = false;
   if (!hal::recoveryMode() && hal::load("bluetooth", &bt, 1) && bt) {
     hal::bleOn(true);
@@ -438,7 +442,9 @@ void ui::begin() {
   midi::route(routing && !hal::diskMode() && !hal::recoveryMode());
   std::string err;
   catalog::parseHub(catalog::hub, catalog::hubUpdated, err);
-  catalog::scanSd();
+  if (!hal::diskMode()) {  // (the computer has the card then: nothing here touches it)
+    catalog::scanSd();
+  }
   setTheme(lv_display_get_default());
   build();
   if (hal::diskMode() || hal::recoveryMode()) {

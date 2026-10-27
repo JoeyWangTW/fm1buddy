@@ -779,7 +779,16 @@ static void fromHost(const uint8_t* b, uint32_t n) {
   }
 }
 
+static uint32_t sent[8];
+
+uint32_t hal::midiSent(int d) {
+  return d >= 0 && d < 8 ? sent[d] : 0;
+}
+
 uint32_t hal::midiOut(int d, const uint8_t* p, uint32_t n) {
+  if (d >= 0 && d < 8) {
+    sent[d] += n * 4;
+  }
   if (d != FM1) {
     return n;  // the keyboard ignores it all
   }

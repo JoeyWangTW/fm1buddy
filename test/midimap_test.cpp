@@ -91,6 +91,31 @@ int main() {
   CHECK(midimap::describe(lo) == "keystep, notes 0-59 -> fm-1 ch 1, +12");
   CHECK(midimap::describe(rule("pb -> drop")) == "anything, pitch bend -> dropped");
 
+  // a line too long for a rule (a damaged file): skipped whole, its line number right, the rules around it kept
+  {
+    const char* path = "build/midimap_long.txt";
+    FILE* f = fopen(path, "w");
+    fprintf(f, "cc 1 -> pc\n");
+    for (int i = 0; i < 400; i++) {
+      fputc(i < 300 ? ' ' : 'x', f);
+    }
+    fprintf(f, " -> drop\npb -> drop\n");
+    fclose(f);
+    std::vector<MapRule> rules;
+    std::string problem;
+    CHECK(midimap::load(path, rules, problem));
+    CHECK(rules.size() == 2);
+    CHECK(problem == "line 2: too long");
+    CHECK(!midimap::damaged(path));
+    // sectors that never made it to the card: zeros
+    f = fopen(path, "r+b");
+    fputc(0, f);
+    fclose(f);
+    CHECK(midimap::damaged(path));
+    remove(path);
+  }
+  CHECK(!midimap::damaged("build/no-such-file.txt"));
+
   printf(fails ? "midimap: %d failed\n" : "midimap: ok\n", fails);
   return fails != 0;
 }

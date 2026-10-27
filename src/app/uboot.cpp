@@ -106,7 +106,9 @@ const char* uboot::enter(int d, Chip& chip) {
   uint32_t start = hal::millis();
   while (!hal::storageThere(VID, PID)) {
     if (hal::millis() - start > 10000) {
-      return "It didn't go into its boot loader (is it running stock V15, or a firmware like fomajam?).";
+      return hal::storageSeen(VID, PID)
+                 ? "Its boot loader came, but fm1buddy couldn't open it: switch the FM-1 off and on, and try again."
+                 : "It didn't go into its boot loader (is it running stock V15, or a firmware like fomajam?).";
     }
     wait(50);
   }
@@ -125,7 +127,8 @@ const char* uboot::attach(Chip& chip) {
   }
   for (uint32_t start = hal::millis(); !hal::storageThere(VID, PID);) {
     if (hal::millis() - start > 10000) {
-      return "Its boot loader didn't show up on USB.";
+      return hal::storageSeen(VID, PID) ? "Its boot loader came, but fm1buddy couldn't open it."
+                                        : "Its boot loader didn't show up on USB.";
     }
     wait(50);
   }
@@ -201,6 +204,9 @@ const char* uboot::read(const Chip& chip, std::vector<uint8_t>& out, void (*prog
     for (int t = 0; t < 3 && !ok; t++) {
       uint32_t got = 0;
       ok = hal::storageCommand(cdb, 16, true, &out[at], IO, &got, 2000) && got == IO;
+      if (!ok) {
+        hal::log("uboot: reading %06X: no answer (try %d)", (unsigned)at, t + 1);
+      }
     }
     if (!ok) {
       return "It stopped answering.";
