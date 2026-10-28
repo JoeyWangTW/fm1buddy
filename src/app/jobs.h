@@ -52,6 +52,7 @@ enum Step { IDLE,
             SAVING,          // RECOVER: its flash as it was, to the SD card
             WRITING_FLASH,   // RECOVER: the sectors that differ (done, total)
             CHECKING_FLASH,  // RECOVER: all of it read again
+            RECOVERY_HOLD,   // guarded write failed: preserve power, no restart or retry
             WORKING };       // SLOOP_*: doing (done, total)
 
 extern std::atomic<int> kind, step;

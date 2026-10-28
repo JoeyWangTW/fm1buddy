@@ -210,7 +210,9 @@ void board::begin() {
       fclose(f);
       logToSd = true;
     }
-#ifdef FM1BUDDY_RECOVERY_IDF
+#ifdef FM1BUDDY_STOCK_RESTORE
+    hal::log("=== recovery guarded v6: stock V15 policy ===");
+#elif defined(FM1BUDDY_RECOVERY_IDF)
     hal::log("=== recovery diagnostic v5: RMT + IDF, writes disabled ===");
 #else
     hal::log("=== persistent recovery trace ===");

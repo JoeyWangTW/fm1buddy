@@ -17,6 +17,9 @@
 #include "settings.h"
 #include "sloop.h"
 #include "uboot.h"
+#ifdef FM1BUDDY_STOCK_RESTORE
+#include "recovery/guarded.h"
+#endif
 
 namespace jobs {
 std::atomic<int> kind{NONE}, step{IDLE};
@@ -275,6 +278,14 @@ static void installJob(void*) {
   total = pkg.flash(at, n) ? n : pkg.size;
   step = ASKING;
   hal::bleHold(true);  // the radio stays out of it
+#ifdef FM1BUDDY_STOCK_RESTORE
+  if (hal::onComputer() || !guarded::powerReady(error)) {
+    if (hal::onComputer()) error = "Disconnect the Mac before installing on the FM-1.";
+    hal::bleHold(false);
+    if (rec) fclose(rec);
+    return finish(false);
+  }
+#endif
   const char* e = fm1::install(pkg, installProgress, rec);
   hal::bleHold(false);
   if (rec) {
@@ -514,9 +525,9 @@ static bool isBackup(const std::string& p) {
 }
 
 static void prepareJob(void*) {
-#ifdef FM1BUDDY_RECOVERY_READ_ONLY
+#if defined(FM1BUDDY_RECOVERY_READ_ONLY) || defined(FM1BUDDY_STOCK_RESTORE)
   if (hal::onComputer()) {
-    error = "Unplug from the Mac, run on battery, then start diagnostics.";
+    error = "Unplug from the Mac, run on battery, then start recovery.";
     return finish(false);
   }
 #endif
@@ -528,7 +539,17 @@ static void prepareJob(void*) {
   if (!getLoader()) {
     return finish(false);
   }
+#ifdef FM1BUDDY_STOCK_RESTORE
+  if (!guarded::preflight(recoverFrom, error)) return finish(false);
+#endif
   hal::save(RECOVER_KEY, recoverFrom, sizeof recoverFrom);
+#ifdef FM1BUDDY_STOCK_RESTORE
+  char stored[sizeof recoverFrom]{};
+  if (!hal::load(RECOVER_KEY, stored, sizeof stored) || memcmp(stored, recoverFrom, sizeof stored)) {
+    error = "Could not save the selected action. Nothing written.";
+    return finish(false);
+  }
+#endif
   finish(true);
   hal::recoveryModeSet(true);  // (the board restarts)
 }
@@ -586,6 +607,9 @@ static const char* image(const std::string& from, std::vector<uint8_t>& out) {
 
 static void recoverJob(void*) {
   std::string from = recovering();
+#ifdef FM1BUDDY_STOCK_RESTORE
+  return finish(guarded::run(from));
+#endif
   std::vector<uint8_t> want, now, back;
   step = GETTING_READY;
 #ifdef FM1BUDDY_RECOVERY_READ_ONLY
@@ -937,6 +961,8 @@ std::string jobs::status() {
       uint32_t t = total, d = done;
       return "Writing " + std::to_string(t ? (unsigned long long)d * 100 / t : 0) + "%: keep it plugged in and on";
     }
+    case RECOVERY_HOLD:
+      return error;
     case CHECKING_FLASH: {
       uint32_t t = total, d = done;
       return "Checking it " + std::to_string(t ? (unsigned long long)d * 100 / t : 0) + "%...";

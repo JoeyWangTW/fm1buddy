@@ -13,6 +13,9 @@
 #include "jobs.h"
 #include "uboot.h"
 #include "ui_priv.h"
+#ifdef FM1BUDDY_STOCK_RESTORE
+#include "recovery/guarded.h"
+#endif
 
 using namespace ui;
 
@@ -66,6 +69,9 @@ void ui::recoverPage(lv_obj_t* page) {
   shownRunning = jobs::running, shownStep = jobs::step, shownKey = hal::keyState();
   bool mine = jobs::kind == jobs::RECOVER;
   std::string from = jobs::recovering(), name = nameOf(from);
+#ifdef FM1BUDDY_STOCK_RESTORE
+  name = from == "restore-v15" ? "stock V15" : from == "dryrun-v15" ? "V15 dry run" : "read-only backup";
+#endif
   for (const Firmware& f : catalog::sd) {
     if (f.file == name && !f.name.empty()) {
       name = f.name;
@@ -80,6 +86,10 @@ void ui::recoverPage(lv_obj_t* page) {
   lv_obj_set_style_pad_row(body, 6, 0);
 #ifdef FM1BUDDY_RECOVERY_READ_ONLY
   wrapped(body, "Detect boot loader, read twice, save backup. Flash writes disabled.", &lv_font_montserrat_12, t.dim);
+#elif defined(FM1BUDDY_STOCK_RESTORE)
+  wrapped(body, (from == "restore-v15" ? "Restore stock V15; preserve boot and device-data regions." :
+                 from == "dryrun-v15" ? "Check stock V15 restore without writing." : "Read twice and save a verified backup."),
+          &lv_font_montserrat_12, t.dim);
 #else
   wrapped(body, ("Putting " + name + " on it.").c_str(), &lv_font_montserrat_12, t.dim);
 #endif
@@ -102,6 +112,8 @@ void ui::recoverPage(lv_obj_t* page) {
     wrapped(body,
 #ifdef FM1BUDDY_RECOVERY_READ_ONLY
             "Diagnostic complete. Switch the FM-1 off. Reconnect fm1buddy to the Mac and press RESET to retrieve the backup.",
+#elif defined(FM1BUDDY_STOCK_RESTORE)
+            "Switch the FM-1 off and on when complete, then tap Done. The backup stays on SD.",
 #else
             "Switch the FM-1 off and on: it starts what was written. Then plug the hub back in, and tap Done.",
 #endif
@@ -119,13 +131,20 @@ void ui::recoverPage(lv_obj_t* page) {
   lv_obj_set_style_pad_column(row, 8, 0);
   if (jobs::running) {
     // only while nothing is going on it yet
+    if (jobs::step == jobs::RECOVERY_HOLD) {
+      wrapped(body, "KEEP POWER ON. No automatic retry or restart.", &lv_font_montserrat_14, t.knob[0]);
+      tick = recoverTick;
+      return;
+    }
     cancelBtn = button(row, LV_SYMBOL_CLOSE " Cancel", doneTapped);
     if (!waiting) {
       lv_obj_add_state(cancelBtn, LV_STATE_DISABLED);
     }
   } else {
     if (!(mine && jobs::ok)) {
+#ifndef FM1BUDDY_STOCK_RESTORE
       button(row, LV_SYMBOL_REFRESH " Try again", againTapped);
+#endif
     }
     button(row, LV_SYMBOL_OK " Done", doneTapped);
   }
@@ -174,6 +193,9 @@ static void backups(std::vector<Choice>& out) {
 
 static std::vector<lv_obj_t*> checks, names;  // the list's rows (a choice changes them, not the page: its scroll stays)
 static lv_obj_t* startBtn;
+#ifdef FM1BUDDY_STOCK_RESTORE
+static bool restoreConfirmed;
+#endif
 
 static void showChosen() {
   const Theme& t = theme();
@@ -188,6 +210,10 @@ static void showChosen() {
 }
 
 static void chooseTapped(lv_event_t* e) {
+#ifdef FM1BUDDY_STOCK_RESTORE
+  restoreConfirmed = false;
+  if (startBtn) lv_label_set_text(lv_obj_get_child(startBtn, 0), "Start");
+#endif
   chosen = choices[(intptr_t)lv_event_get_user_data(e)].path;
   showChosen();
 }
@@ -197,6 +223,15 @@ static void startTapped(lv_event_t*) {
     toast("Unplug the Mac; run on battery first.", true);
     return;
   }
+#ifdef FM1BUDDY_STOCK_RESTORE
+  if (chosen == "restore-v15" && !restoreConfirmed) {
+    restoreConfirmed = true;
+    lv_label_set_text(lv_obj_get_child(startBtn, 0), "Confirm V15 restore");
+    toast("Replaces firmware with stock V15. Keep both batteries charged.", true);
+    return;
+  }
+  restoreConfirmed = false;
+#endif
   if (!jobs::prepare(chosen)) {
     toast("Busy: try again in a moment.", true);
   }
@@ -230,6 +265,8 @@ void ui::recoverStartPage(lv_obj_t* page) {
   wrapped(body,
 #ifdef FM1BUDDY_RECOVERY_READ_ONLY
           "Read-only test for an FM-1 that will not start. Disconnect the Mac and run fm1buddy on battery first.",
+#elif defined(FM1BUDDY_STOCK_RESTORE)
+          "Battery power and a direct USB cable. V15 restore replaces firmware after saving a verified backup; protected regions are preserved.",
 #else
           "For an FM-1 that doesn't start: a firmware or a backup goes back on it, through its chip's own boot loader.",
 #endif
@@ -237,6 +274,11 @@ void ui::recoverStartPage(lv_obj_t* page) {
 
 #ifdef FM1BUDDY_RECOVERY_READ_ONLY
   label(body, "Diagnostic target", &lv_font_montserrat_14, t.text);
+#elif defined(FM1BUDDY_STOCK_RESTORE)
+  char power[80];
+  snprintf(power, sizeof power, "ESP32 %.2f V (3.90 V minimum for restore)", guarded::batteryVolts());
+  wrapped(body, power, &lv_font_montserrat_12, t.dim);
+  label(body, "Action", &lv_font_montserrat_14, t.text);
 #else
   label(body, "Put on it", &lv_font_montserrat_14, t.text);
 #endif
@@ -249,6 +291,12 @@ void ui::recoverStartPage(lv_obj_t* page) {
     }
   }
   backups(choices);
+#ifdef FM1BUDDY_STOCK_RESTORE
+  choices = {{"backup", "Read and back up", "no writes"},
+             {"dryrun-v15", "Check V15 restore", "dry run"},
+             {"restore-v15", "Restore stock V15", "writes"}};
+  restoreConfirmed = false;
+#endif
 #ifdef FM1BUDDY_RECOVERY_READ_ONLY
   choices = {{"diagnostic", "Read flash only", "no writes"}};
   chosen = "diagnostic";

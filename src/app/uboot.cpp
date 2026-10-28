@@ -8,6 +8,9 @@
 
 #include "hal.h"
 #include "midi.h"
+#ifdef FM1BUDDY_STOCK_RESTORE
+#include "stock_restore.h"
+#endif
 
 #define VID 0x4C4A
 #define PID 0x8057
@@ -259,13 +262,20 @@ const char* uboot::writeSector(uint32_t addr, const uint8_t* data) {
   (void)data;
   return "Diagnostic build: flash writes disabled.";
 #else
+#ifdef FM1BUDDY_STOCK_RESTORE
+  if (!stock_guard_sector(addr, data))
+    return "No guarded stock sector authorization.";
+  constexpr int writeTries = 1;
+#else
+  constexpr int writeTries = 3;
+#endif
   if (addr < WRITE_FROM || addr >= WRITE_TO || addr % SECTOR) {
     hal::log("uboot: a write to %06X refused", (unsigned)addr);
     return "That isn't somewhere it writes.";  // (never: the job only asks for these)
   }
   uint8_t args[9], cdb[16], resp[16], back[IO];
   be32(args, addr);
-  if (!exec(ERASE_SECTOR, args, 4, resp, 3, 5000)) {
+  if (!exec(ERASE_SECTOR, args, 4, resp, writeTries, 5000)) {
     return "It didn't erase.";
   }
   for (uint32_t off = 0; off < SECTOR; off += IO) {
@@ -275,7 +285,7 @@ const char* uboot::writeSector(uint32_t addr, const uint8_t* data) {
     args[7] = c & 0xFF, args[8] = c >> 8;
     cdbOf(cdb, WRITE_FLASH, args, sizeof args);
     bool ok = false;
-    for (int t = 0; t < 3 && !ok; t++) {  // (the same bytes again: NOR flash only clears bits, so it's the same)
+    for (int t = 0; t < writeTries && !ok; t++) {  // Guarded stock writes get exactly one attempt.
       ok = hal::storageCommand(cdb, 16, false, (uint8_t*)data + off, IO, 0, 2000);
     }
     if (!ok) {

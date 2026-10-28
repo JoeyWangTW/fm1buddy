@@ -11,6 +11,9 @@
 #include "record.h"
 #include "ui.h"
 #include "uboot.h"
+#ifdef FM1BUDDY_STOCK_RESTORE
+#include "recovery/guarded.h"
+#endif
 
 #define W 320
 #define H 240
@@ -197,7 +200,13 @@ static void console() {
     n = 0;
     int x, y, x2, y2;
     if (!strcmp(line, "recoveryinfo")) {
-#ifdef FM1BUDDY_RECOVERY_IDF
+#ifdef FM1BUDDY_STOCK_RESTORE
+      std::string reason;
+      bool stock = guarded::preflight("dryrun-v15", reason);
+      Serial.printf("RECOVERY guarded-v6 backend=RMT-IDF writes=STOCK-V15-GUARDED hub=ENABLED sd=%d helper=%d computer=%d psram=%u recovery=%d key=%d battery=%.3f stock_ready=%d\n",
+                    hal::sd() != nullptr, uboot::haveLoader(), hal::onComputer(), ESP.getPsramSize(), hal::recoveryMode(), hal::keyState(), guarded::batteryVolts(), stock);
+      if (!stock) Serial.println(reason.c_str());
+#elif defined(FM1BUDDY_RECOVERY_IDF)
       Serial.printf("RECOVERY diagnostic-v5 backend=RMT-IDF writes=DISABLED sd=%d helper=%d computer=%d psram=%u recovery=%d key=%d\n",
                     hal::sd() != nullptr, uboot::haveLoader(), hal::onComputer(), ESP.getPsramSize(), hal::recoveryMode(), hal::keyState());
 #else

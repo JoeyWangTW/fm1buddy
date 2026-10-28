@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #pragma once
-#if defined(FM1BUDDY_RECOVERY_IDF) && !defined(FM1BUDDY_RECOVERY_READ_ONLY)
-#error "The experimental IDF recovery backend is read-only; write integration is not validated"
+#if defined(FM1BUDDY_RECOVERY_READ_ONLY) && defined(FM1BUDDY_STOCK_RESTORE)
+#error "Choose read-only diagnostics or guarded stock restoration, not both"
+#endif
+#if defined(FM1BUDDY_RECOVERY_IDF) && !defined(FM1BUDDY_RECOVERY_READ_ONLY) && !defined(FM1BUDDY_STOCK_RESTORE)
+#error "IDF recovery requires read-only mode or the guarded stock restore policy"
 #endif
 #include <stdint.h>
 namespace recovery {

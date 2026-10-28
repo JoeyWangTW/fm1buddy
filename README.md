@@ -107,3 +107,7 @@ See [the integration notes and test procedure](docs/hosyond-recovery.md). The or
 ## License
 
 GPL-3.0-only. Credits and third-party parts: [LICENSING.md](LICENSING.md).
+
+## Hosyond Hub installs and stock restore
+
+The `hosyond-recovery` profile enables Hub installs and guarded stock-V15 restoration using the RMT/IDF backend. It requires a fresh verified backup, preserves protected regions, and refuses automatic erase/write retries. See [setup, controls and validation limits](docs/hosyond-restore.md). The separate `hosyond-diagnostic` profile remains read-only. The new profile’s actual write paths still need hardware validation.

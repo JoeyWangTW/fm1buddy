@@ -1,6 +1,6 @@
 # Hosyond ESP32-S3 recovery integration
 
-This experimental profile tests fm1buddy's recovery UI and backup workflow with the RMT/native-IDF USB backend used by a successful standalone recovery app. It is **read-only**: normal firmware installation is refused, `uboot::writeSector` is compiled to refuse every request, and the recovery USB boundary rejects erase/write commands. Removing only the read-only build flag fails compilation. It does not yet integrate the standalone app's guarded stock-V15 writer.
+This experimental profile tests fm1buddy's recovery UI and backup workflow with the RMT/native-IDF USB backend used by a successful standalone recovery app. It is **read-only**: normal firmware installation is refused, `uboot::writeSector` is compiled to refuse every request, and the recovery USB boundary rejects erase/write commands. Removing the read-only flag without selecting the guarded stock policy fails compilation. This diagnostic profile does not enable the stock writer; see the separate [guarded restore profile](hosyond-restore.md).
 
 ## Hardware and build
 

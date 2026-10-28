@@ -18,7 +18,9 @@ jobs:
       - run: pip install platformio esptool==4.8.1
       - run: tools/unit-test.sh
       - run: tools/recovery-test.sh
+      - run: sh tools/stock-test.sh
       - run: pio run -e hosyond-diagnostic
+      - run: pio run -e hosyond-recovery
       - run: pio run
       - run: |
           mkdir -p build

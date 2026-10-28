@@ -12,6 +12,9 @@
 
 #include "hal.h"
 #include "recovery.h"
+#ifdef FM1BUDDY_STOCK_RESTORE
+#include "stock_restore.h"
+#endif
 #define trace hal::log
 #include "policy.h"
 
@@ -96,7 +99,11 @@ static void le32(uint8_t *p, uint32_t n) {
 static bool bot(const uint8_t *c, uint8_t n, bool in, void *data, uint16_t len, uint32_t *got) {
   if (got)
     *got = 0;
-  if (!command_allowed(c, n, in, len)) {
+  if (!command_allowed(c, n, in, len)
+#ifdef FM1BUDDY_STOCK_RESTORE
+      && !stock_guard_command(c, n, in, data, len)
+#endif
+  ) {
     trace("POLICY: refused CDB %02X%02X", c ? c[0] : 0, c && n > 1 ? c[1] : 0);
     return false;
   }
