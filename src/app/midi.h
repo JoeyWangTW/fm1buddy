@@ -27,7 +27,7 @@ struct Dev {
   uint32_t sysexLost;  // SysEx from it that didn't fit (too long, or not read fast enough)
 };
 
-extern std::atomic<bool> thru;  // everything to everything (off for a moment: an install, a .syx sent)
+extern std::atomic<bool> thru;  // everything to everything (off for a moment: an install, a job in SysEx)
 // MIDI routing: the devices play each other (and Bluetooth MIDI runs, if it's on) while it's on. Off: the devices are
 // only listened to (installs, Sounds). Wi-Fi and Bluetooth MIDI don't both fit: with Bluetooth on, turning routing on
 // turns Wi-Fi off, and Wi-Fi coming on pauses Bluetooth

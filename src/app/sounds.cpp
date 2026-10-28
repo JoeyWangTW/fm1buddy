@@ -680,8 +680,7 @@ const char* sounds::send(int d, const std::vector<uint8_t>& data, void (*progres
       return "It has the FM-1's update command in it: not sent.";
     }
   }
-  midi::thru = false;  // nothing else in the middle of a message
-  const char* err = 0;
+  const char* err = 0;  // (routing is off meanwhile: jobs.cpp)
   uint32_t done = 0;
   for (auto& [at, n] : ms) {
     for (uint32_t i = 0; i < n && !err; i += 256) {
@@ -698,6 +697,5 @@ const char* sounds::send(int d, const std::vector<uint8_t>& data, void (*progres
     }
     wait(150);  // a moment to take each in
   }
-  midi::thru = true;
   return err;
 }
