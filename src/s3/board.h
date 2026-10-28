@@ -11,8 +11,9 @@ void usbHostBegin();  // usb_s3.cpp
 void diskBegin();     // disk_s3.cpp: the USB port as a USB drive (the SD card), in USB disk mode
 void loop();
 // testing over the serial console: "host" starts as the USB host once (for 40 s), "log" prints the SD card's log.
-// script: what to do meanwhile, "tap X Y", "wait MS" and "usbrestart" (hal::usbRestart) between ';' (the console
-// can't: the port is the host then)
+// script: what to do meanwhile, "tap X Y", "wait MS", "usbrestart" (hal::usbRestart), "rec" (a take starts or
+// stops) and "on N" / "off N" (a note to the device the USB audio comes from) between ';' (the console can't: the
+// port is the host then)
 void hostTestStart(const char* script);
 const char* hostTestScript();
 void printLog();

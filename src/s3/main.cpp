@@ -7,6 +7,8 @@
 
 #include "board.h"
 #include "hal.h"
+#include "midi.h"
+#include "record.h"
 #include "ui.h"
 
 #define W 320
@@ -241,6 +243,20 @@ static void script() {
   } else if (!strncmp(at + strspn(at, " "), "usbrestart", 10)) {
     hal::log("test: usb restart");
     hal::usbRestart();
+  } else if (!strncmp(at + strspn(at, " "), "rec", 3)) {
+    std::string why;
+    if (record::recording()) {
+      record::stop();
+    } else if (!record::start(why)) {
+      hal::log("test: rec: %s", why.c_str());
+    }
+  } else if (sscanf(at, " on %d", &x) == 1 || sscanf(at, " off %d", &y) == 1) {
+    bool on = !strncmp(at + strspn(at, " "), "on", 2);
+    hal::AudioIn a;
+    uint8_t m[3] = {(uint8_t)(on ? 0x90 : 0x80), (uint8_t)(on ? x : y), (uint8_t)(on ? 100 : 0)};
+    if (hal::audioIn(a) && a.dev >= 0) {
+      midi::send(a.dev, m, 3);  // (to the device the audio comes from: the FM-1)
+    }
   }
   const char* semi = strchr(at, ';');
   at = semi ? semi + 1 : at + strlen(at);
