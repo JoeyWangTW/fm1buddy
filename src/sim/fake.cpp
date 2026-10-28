@@ -44,7 +44,8 @@ static struct {
   std::vector<bool> got;
   // fomajam: its song (a version 9 one is 11914 bytes, starting with 9 and the tempo), its kits, and one coming in
   bool fomajam, playing;
-  bool sloop;  // it runs SLOOP (its editor protocol: sloopAnswer)
+  bool sloop;    // it runs SLOOP (its editor protocol: sloopAnswer)
+  bool felucca;  // ... or plain Felucca (the same, but 3 sample slots, no backups)
   std::vector<uint8_t> song, kits, in;
   uint32_t inTotal, inGot;
 } f;
@@ -453,7 +454,7 @@ static bool sloopAnswer(const uint8_t* b, uint32_t n) {
   uint32_t an = n - 6;
   std::vector<uint8_t> r;
   if (cmd == 1) {  // INFO: version, NENGINES, P_COUNT, G_COUNT, NSTEP, P_E0, the engines, NTRK, protocol
-    const char* v = "FELUCCA SLOOP 2.8";
+    const char* v = f.felucca ? "FELUCCA v1.6.1" : "FELUCCA SLOOP 2.8";
     r.insert(r.end(), v, v + strlen(v) + 1);
     r.insert(r.end(), {11, 71, 45, 64, 63});
     for (int e = 0; e < 11; e++) {
@@ -509,8 +510,9 @@ static bool sloopAnswer(const uint8_t* b, uint32_t n) {
     }
     r = {(uint8_t)op, (uint8_t)id, rc};
   } else if (cmd == 15) {  // SMP_INFO: slots, KiB a slot, then each one's zones, name, KiB
-    r = {4, 80};
-    for (int k = 0; k < 4; k++) {
+    int slots = f.felucca ? 3 : 4;
+    r = {(uint8_t)slots, 80};
+    for (int k = 0; k < slots; k++) {
       const auto& d = sl[32 + k];
       r.push_back(d.size() >= 8 ? d[6] : 0);
       for (int i = 8; i < 16 && d.size() >= 16 && d[i]; i++) {
@@ -564,6 +566,10 @@ static bool sloopAnswer(const uint8_t* b, uint32_t n) {
 
 void fake::sloopMode(bool on) {
   f.sloop = on;
+}
+
+void fake::feluccaMode(bool on) {
+  f.sloop = f.felucca = on;
 }
 
 // ------------------------------------------------------------------------------- its boot loader ---

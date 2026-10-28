@@ -107,6 +107,43 @@ static const sounds::Speaks* device(lv_obj_t* body) {
   return s;
 }
 
+// for its sample slots: any firmware that has them (Felucca's, SLOOP's, ...)
+static const sounds::Speaks* slotDevice(lv_obj_t* body) {
+  const sounds::Speaks* s = soundsSpeaks();
+  if (!s || !s->slots) {
+    wrapped(body, "The FM-1's firmware has no sample slots (or it went): see the Sounds page.", theme().knob[0]);
+    return 0;
+  }
+  return s;
+}
+
+// where the sample slots are shown: SLOOP's page, or the one for the others
+static Builder slotsHome() {
+  const sounds::Speaks* s = soundsSpeaks();
+  return s && s->sloop && s->proto >= 6 ? sloopPage : slotsPage;
+}
+
+// what's in the sample slots, and the button to load some
+static void slotList(lv_obj_t* body, const sounds::Speaks* s) {
+  const Theme& t = theme();
+  lv_obj_t* h = label(body, "Sample slots", &lv_font_montserrat_14, t.text);
+  lv_obj_set_style_pad_top(h, 6, 0);
+  for (int k = 0; k < s->slots; k++) {
+    char text[48];
+    if (s->slot[k].zones) {
+      snprintf(text, sizeof text, "USR%d   %s (%d zone%s)", k + 1, s->slot[k].name, s->slot[k].zones,
+               s->slot[k].zones == 1 ? "" : "s");
+    } else {
+      snprintf(text, sizeof text, "USR%d   empty", k + 1);
+    }
+    label(body, text, &lv_font_montserrat_14, s->slot[k].zones ? t.text : t.dim);
+  }
+  button(body, LV_SYMBOL_AUDIO "  Load .wav files", [](lv_event_t*) {
+    chosen.clear();
+    go(samplesPage);
+  });
+}
+
 // ------------------------------------------------------------------------------------------- the page ---
 static void backupTapped(lv_event_t*) {
   if (!jobs::sloopBackup(soundsDev())) {
@@ -154,23 +191,27 @@ void ui::sloopPage(lv_obj_t* page) {
                         : "SLOOP's own files: its web editor opens them, and its backups go here too.",
           t.dim);
 
-  // the sample slots
-  h = label(body, "Sample slots", &lv_font_montserrat_14, t.text);
-  lv_obj_set_style_pad_top(h, 6, 0);
-  for (int k = 0; k < s->slots; k++) {
-    char text[48];
-    if (s->slot[k].zones) {
-      snprintf(text, sizeof text, "USR%d   %s (%d zone%s)", k + 1, s->slot[k].name, s->slot[k].zones,
-               s->slot[k].zones == 1 ? "" : "s");
-    } else {
-      snprintf(text, sizeof text, "USR%d   empty", k + 1);
-    }
-    label(body, text, &lv_font_montserrat_14, s->slot[k].zones ? t.text : t.dim);
+  slotList(body, s);
+  showProgress();
+  tick = showProgress;
+  jobDone = jobEnded;
+}
+
+// Felucca, and the firmwares built on it that kept its user sample slots (the SAMPLE engine plays them as USR1..)
+void ui::slotsPage(lv_obj_t* page) {
+  const Theme& t = theme();
+  shown = slotsPage;
+  header(page, "Samples", soundsPage);
+  lv_obj_t* body = scroller(page);
+  lv_obj_set_style_pad_row(body, 4, 0);
+  status = bar = 0;
+  const sounds::Speaks* s = slotDevice(body);
+  if (!s) {
+    return;
   }
-  button(body, LV_SYMBOL_AUDIO "  Load .wav files", [](lv_event_t*) {
-    chosen.clear();
-    go(samplesPage);
-  });
+  label(body, s->version, &lv_font_montserrat_14, t.text);
+  slotList(body, s);
+  wrapped(body, "Its SAMPLE engine plays them: pick USR1, USR2 ... as its sample set.", t.dim);
   showProgress();
   tick = showProgress;
   jobDone = jobEnded;
@@ -282,11 +323,11 @@ static void slotTapped(lv_event_t* e) {
 static void samplesPage(lv_obj_t* page) {
   const Theme& t = theme();
   shown = samplesPage;
-  header(page, "Load samples", sloopPage);
+  header(page, "Load samples", slotsHome());
   lv_obj_t* body = scroller(page);
   lv_obj_set_style_pad_row(body, 4, 0);
   status = bar = 0;
-  const sounds::Speaks* s = device(body);
+  const sounds::Speaks* s = slotDevice(body);
   if (!s) {
     return;
   }

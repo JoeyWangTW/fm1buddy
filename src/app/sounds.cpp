@@ -643,8 +643,8 @@ void sounds::probe(int d, Speaks& out) {
       out.proto = (uint8_t)si.proto;
       out.pcount = (uint8_t)si.pcount;
     }
-    std::vector<sloop::Slot> slots;
-    if (out.sloop && !sloop::slots(d, slots)) {
+    std::vector<sloop::Slot> slots;  // user sample slots: Felucca's, and those of the firmwares built on it
+    if (!sloop::slots(d, slots)) {
       out.slots = (uint8_t)std::min<size_t>(slots.size(), 4);
       for (int i = 0; i < out.slots; i++) {
         out.slot[i].zones = (uint8_t)slots[i].zones;

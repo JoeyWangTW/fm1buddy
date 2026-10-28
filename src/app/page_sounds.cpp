@@ -432,12 +432,18 @@ void ui::soundsPage(lv_obj_t* page) {
       lv_obj_set_style_text_align(v, LV_TEXT_ALIGN_RIGHT, 0);
       lv_obj_set_flex_grow(v, 1);
       label(r, LV_SYMBOL_RIGHT, &lv_font_montserrat_14, t.dim);
+    } else if (asked && speaks.slots) {  // Felucca, and the firmwares built on it that kept its sample slots
+      lv_obj_t* r = listRow(body, [](lv_event_t*) { go(slotsPage); }, 0);
+      label(r, LV_SYMBOL_AUDIO "  Samples", &lv_font_montserrat_16, t.text);
+      lv_obj_t* v = line(r, "its sample slots", &lv_font_montserrat_12, t.dim);
+      lv_obj_set_style_text_align(v, LV_TEXT_ALIGN_RIGHT, 0);
+      lv_obj_set_flex_grow(v, 1);
+      label(r, LV_SYMBOL_RIGHT, &lv_font_montserrat_14, t.dim);
     } else if (asked && fm1::candidate(dev)) {
       const char* hint = speaks.sloop     ? "Backups, projects and sample slots need SLOOP 2.3 or later: update it from "
                                             "Firmware (the Hub has it)."
-                         : speaks.felucca ? "SLOOP (on the Hub) adds backups, projects and sample slots you can load "
-                                            "from here. Settings > Back up the FM-1 saves all of its flash with any "
-                                            "firmware."
+                         : speaks.felucca ? "SLOOP (on the Hub) adds backups and projects you can load from here. "
+                                            "Settings > Back up the FM-1 saves all of its flash with any firmware."
                          : speaks.share   ? 0
                                           : "Settings > Back up the FM-1 saves all of its flash, with any firmware.";
       if (hint) {
