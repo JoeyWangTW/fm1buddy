@@ -172,8 +172,13 @@ void board::begin() {
 #ifdef LED_RGB
   rgbLedWrite(LED_RGB, 0, 0, 0);
 #endif
+#ifdef FM1BUDDY_SD_ONE_BIT
+  SD_MMC.setPins(SD_CLK, SD_CMD, SD_D0);
+  sdOk = SD_MMC.begin("/sdcard", true);
+#else
   SD_MMC.setPins(SD_CLK, SD_CMD, SD_D0, SD_D1, SD_D2, SD_D3);
   sdOk = SD_MMC.begin("/sdcard", false);
+#endif
   WiFi.mode(WIFI_OFF);
   disk = diskFlag == DISK_MODE && sdOk;
   diskFlag = 0;

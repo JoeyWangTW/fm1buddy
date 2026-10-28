@@ -322,6 +322,10 @@ bool jobs::download(const Firmware& f) {
 }
 
 bool jobs::install(const Firmware& f) {
+#ifdef FM1BUDDY_RECOVERY_READ_ONLY
+  error = "Diagnostic build: firmware installs disabled.";
+  return false;
+#endif
   if (running) {
     return false;
   }
@@ -510,6 +514,12 @@ static bool isBackup(const std::string& p) {
 }
 
 static void prepareJob(void*) {
+#ifdef FM1BUDDY_RECOVERY_READ_ONLY
+  if (hal::onComputer()) {
+    error = "Unplug from the Mac, run on battery, then start diagnostics.";
+    return finish(false);
+  }
+#endif
   if (!hal::sd()) {
     error = "No SD card.";
     return finish(false);
@@ -578,8 +588,12 @@ static void recoverJob(void*) {
   std::string from = recovering();
   std::vector<uint8_t> want, now, back;
   step = GETTING_READY;
+#ifdef FM1BUDDY_RECOVERY_READ_ONLY
+  const char* e = !hal::sd() ? "No SD card." : nullptr;
+#else
   const char* e = !hal::sd() ? "No SD card." : from.empty() ? "Nothing was chosen to go on it."
                                                             : image(from, want);
+#endif
   if (e) {
     error = e;
     return finish(false);
@@ -609,6 +623,39 @@ static void recoverJob(void*) {
     reading = 1;
     e = uboot::read(chip, now, progress);
   }
+#ifdef FM1BUDDY_RECOVERY_READ_ONLY
+  if (!e) {
+    reading = 2;
+    e = uboot::read(chip, back, progress);
+    if (!e && now != back) {
+      e = "Flash reads differ: no backup accepted; nothing written.";
+    }
+  }
+  // Leave the RAM loader before SD verification, so filesystem work cannot time it out.
+  step = LEAVING;
+  uboot::leave();
+  if (!e) {
+    step = SAVING;
+    if (!saveBackup(now, chip, "read-only recovery diagnostic (two matching reads)", false)) {
+      e = "Could not save the backup.";
+    } else {
+      char memoryHash[65] = {}, fileHash[65] = {};
+      std::string path = catalog::path(BACKUPS_DIR) + "/" + saved;
+      if (!hal::sha256(now.data(), now.size(), memoryHash) ||
+          !hal::sha256(path.c_str(), fileHash) || strcmp(memoryHash, fileHash)) {
+        e = "SD backup verification failed: nothing written to FM-1.";
+      } else {
+        hal::log("diagnostic: two matching reads; SD verified sha256 %s", fileHash);
+      }
+    }
+  }
+  error = e ? e : "Backup verified. Nothing written to FM-1 flash.";
+  hal::log("diagnostic: %s", error.c_str());
+  if (e) {
+    hal::usbRestart();
+  }
+  return finish(!e);
+#endif
   // the flash as it was, first: whatever happens next, it's on the SD card
   if (!e) {
     step = SAVING;

@@ -71,10 +71,18 @@ void ui::recoverPage(lv_obj_t* page) {
       name = f.name;
     }
   }
+#ifdef FM1BUDDY_RECOVERY_READ_ONLY
+  header(page, "FM-1 read-only diagnostic");
+#else
   header(page, LV_SYMBOL_WARNING "  Recovering the FM-1");
+#endif
   lv_obj_t* body = scroller(page);
   lv_obj_set_style_pad_row(body, 6, 0);
+#ifdef FM1BUDDY_RECOVERY_READ_ONLY
+  wrapped(body, "Detect boot loader, read twice, save backup. Flash writes disabled.", &lv_font_montserrat_12, t.dim);
+#else
   wrapped(body, ("Putting " + name + " on it.").c_str(), &lv_font_montserrat_12, t.dim);
+#endif
   bool waiting = jobs::running && (jobs::step == jobs::GETTING_READY || jobs::step == jobs::KEYING);
   if (jobs::running) {
     // one step at a time: off, on, then it runs
@@ -91,7 +99,12 @@ void ui::recoverPage(lv_obj_t* page) {
     status = 0;
     wrapped(body, jobs::error.empty() ? "Done: it's on the FM-1." : jobs::error.c_str(), &lv_font_montserrat_16,
             t.accent);
-    wrapped(body, "Switch the FM-1 off and on: it starts what was written. Then plug the hub back in, and tap Done.",
+    wrapped(body,
+#ifdef FM1BUDDY_RECOVERY_READ_ONLY
+            "Diagnostic complete. Switch the FM-1 off. Reconnect fm1buddy to the Mac and press RESET to retrieve the backup.",
+#else
+            "Switch the FM-1 off and on: it starts what was written. Then plug the hub back in, and tap Done.",
+#endif
             &lv_font_montserrat_14, t.text);
   } else {
     status = 0;
@@ -180,6 +193,10 @@ static void chooseTapped(lv_event_t* e) {
 }
 
 static void startTapped(lv_event_t*) {
+  if (hal::onComputer()) {
+    toast("Unplug the Mac; run on battery first.", true);
+    return;
+  }
   if (!jobs::prepare(chosen)) {
     toast("Busy: try again in a moment.", true);
   }
@@ -203,13 +220,26 @@ static void startTick() {
 
 void ui::recoverStartPage(lv_obj_t* page) {
   const Theme& t = theme();
+#ifdef FM1BUDDY_RECOVERY_READ_ONLY
+  header(page, "FM-1 recovery diagnostic", settingsPage);
+#else
   header(page, "Recover the FM-1", settingsPage);
+#endif
   lv_obj_t* body = scroller(page);
   lv_obj_set_style_pad_row(body, 4, 0);
-  wrapped(body, "For an FM-1 that doesn't start: a firmware or a backup goes back on it, through its chip's own boot loader.",
+  wrapped(body,
+#ifdef FM1BUDDY_RECOVERY_READ_ONLY
+          "Read-only test for an FM-1 that will not start. Disconnect the Mac and run fm1buddy on battery first.",
+#else
+          "For an FM-1 that doesn't start: a firmware or a backup goes back on it, through its chip's own boot loader.",
+#endif
           &lv_font_montserrat_12, t.dim);
 
+#ifdef FM1BUDDY_RECOVERY_READ_ONLY
+  label(body, "Diagnostic target", &lv_font_montserrat_14, t.text);
+#else
   label(body, "Put on it", &lv_font_montserrat_14, t.text);
+#endif
   choices.clear();
   for (const Firmware& f : catalog::sd) {
     if (!strncmp(f.product.c_str(), "FM-1_", 5)) {
@@ -219,6 +249,10 @@ void ui::recoverStartPage(lv_obj_t* page) {
     }
   }
   backups(choices);
+#ifdef FM1BUDDY_RECOVERY_READ_ONLY
+  choices = {{"diagnostic", "Read flash only", "no writes"}};
+  chosen = "diagnostic";
+#endif
   if (std::none_of(choices.begin(), choices.end(), [](const Choice& c) { return c.path == chosen; })) {
     chosen.clear();
   }

@@ -254,6 +254,11 @@ void uboot::keepAlive() {
 }
 
 const char* uboot::writeSector(uint32_t addr, const uint8_t* data) {
+#ifdef FM1BUDDY_RECOVERY_READ_ONLY
+  (void)addr;
+  (void)data;
+  return "Diagnostic build: flash writes disabled.";
+#else
   if (addr < WRITE_FROM || addr >= WRITE_TO || addr % SECTOR) {
     hal::log("uboot: a write to %06X refused", (unsigned)addr);
     return "That isn't somewhere it writes.";  // (never: the job only asks for these)
@@ -295,6 +300,7 @@ const char* uboot::writeSector(uint32_t addr, const uint8_t* data) {
     }
   }
   return 0;
+#endif
 }
 
 void uboot::leave() {
