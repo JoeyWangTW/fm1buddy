@@ -7,6 +7,7 @@
 #include <soc/usb_dwc_struct.h>
 #include <usb/usb_host.h>
 
+#include <atomic>
 #include <cstring>
 
 #include "hal.h"
@@ -22,6 +23,7 @@ static uint8_t pendingAddress, epIn, epOut, interfaceNumber;
 static bool gone, broken, ready, completed;
 static uint32_t tag;
 static unsigned epInMps;
+static std::atomic<bool> rejectedDevice{false};
 static uint8_t buffer[4096];
 static void events(const usb_host_client_event_msg_t *m, void *) {
   if (m->event == USB_HOST_CLIENT_EVENT_NEW_DEV && !device)
@@ -227,7 +229,14 @@ static bool enumIdentity(const usb_device_desc_t *d, uint8_t *configuration) {
   trace("ENUM: device descriptor VID=%04X PID=%04X ep0=%u", d->idVendor, d->idProduct,
         d->bMaxPacketSize0);
   *configuration = 1;
-  return d->idVendor == 0x4C4A && d->idProduct == 0x8057;
+  bool expected = d->idVendor == 0x4C4A && d->idProduct == 0x8057;
+  if (!expected) {
+    // The daemon invokes this callback; publish the result to the key task.
+    // A running instrument can also pull D+ high. That alone is not ROM proof.
+    rejectedDevice = true;
+    trace("ENUM: unexpected device; recovery loader required, no commands sent");
+  }
+  return expected;
 }
 bool recovery::prepare() {
   if (usb_host_transfer_alloc(4096, 0, &transfer) != ESP_OK)
@@ -278,6 +287,10 @@ bool recovery::waitHost(unsigned ms) {
   uint32_t start = millis(), said = start;
   while (millis() - start < ms) {
     pump();
+    if (rejectedDevice.load()) {
+      trace("USB: device detected but not the boot ROM; stopping without commands");
+      return false;
+    }
     if (pendingAddress)
       return openDevice();
     if (millis() - said >= 1000) {

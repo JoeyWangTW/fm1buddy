@@ -259,6 +259,14 @@ bool recoveryKey() {
       break;
     }
     ++count;
+    // A powered-off target can clamp the clock/data lines. Until a complete
+    // key has actually appeared on the pins, its low D- cannot acknowledge it.
+    // Waiting 500 ms for that false ACK leaves a hole across the power-on window.
+    if (!checkedPins) {
+      alive = false;
+      vTaskDelay(1);
+      continue;
+    }
     int low = 0, high = 0;
     bool acknowledged = false;
     for (int j = 0; j < 4; j++) {

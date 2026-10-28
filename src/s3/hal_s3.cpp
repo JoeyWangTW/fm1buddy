@@ -211,7 +211,7 @@ void board::begin() {
       logToSd = true;
     }
 #ifdef FM1BUDDY_RECOVERY_IDF
-    hal::log("=== recovery diagnostic v4: RMT + IDF, writes disabled ===");
+    hal::log("=== recovery diagnostic v5: RMT + IDF, writes disabled ===");
 #else
     hal::log("=== persistent recovery trace ===");
 #endif
