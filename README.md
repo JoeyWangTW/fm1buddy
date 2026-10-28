@@ -100,7 +100,7 @@ case/      the 3D-printed case (OpenSCAD); tools/cases.sh makes its STLs
 
 ## Experimental Hosyond recovery diagnostic
 
-The opt-in `hosyond-diagnostic` build ports the RMT key and Espressif USB-host path from an ESP32-S3 recovery app that completed one stock-V15 restoration on a Hosyond ES3C28P. **This fm1buddy integration is read-only and still needs its own hardware validation.** It does not establish that upstream fm1buddy's restore path works. Normal firmware installation and recovery flash writes are disabled in this profile.
+The opt-in `hosyond-diagnostic` build ports the RMT key and Espressif USB-host path from an ESP32-S3 recovery app that completed one stock-V15 restoration on a Hosyond ES3C28P. **This fm1buddy integration is read-only.** One integrated test on a working FM-1 running SLOOP entered the recovery ROM, read the full flash twice with matching results, and verified the saved backup on SD and Mac. Repeated startup reliability and integrated restore writes remain unvalidated. It does not establish that upstream fm1buddy's restore path works. Normal firmware installation and recovery flash writes are disabled in this profile.
 
 See [the integration notes and test procedure](docs/hosyond-recovery.md). The ordinary `cyd-s3` build retains its existing TinyUSB recovery backend.
 
