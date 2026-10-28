@@ -313,6 +313,10 @@ static void save(lv_event_t*) {
 }
 
 static void install(lv_event_t* e) {
+#ifdef FM1BUDDY_RECOVERY_READ_ONLY
+  toast("Read-only test build: installs disabled.", true);
+  return;
+#endif
   lv_obj_t* l = lv_obj_get_child((lv_obj_t*)lv_event_get_target(e), 0);
   const char* sure = hasBackup() ? "Sure? Tap again" : "No backup. Sure?";
   if (strcmp(lv_label_get_text(l), sure)) {

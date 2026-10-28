@@ -198,7 +198,7 @@ static void console() {
     int x, y, x2, y2;
     if (!strcmp(line, "recoveryinfo")) {
 #ifdef FM1BUDDY_RECOVERY_IDF
-      Serial.printf("RECOVERY diagnostic-v3 backend=RMT-IDF writes=DISABLED sd=%d helper=%d computer=%d psram=%u recovery=%d key=%d\n",
+      Serial.printf("RECOVERY diagnostic-v4 backend=RMT-IDF writes=DISABLED sd=%d helper=%d computer=%d psram=%u recovery=%d key=%d\n",
                     hal::sd() != nullptr, uboot::haveLoader(), hal::onComputer(), ESP.getPsramSize(), hal::recoveryMode(), hal::keyState());
 #else
       Serial.println("RECOVERY backend=upstream");

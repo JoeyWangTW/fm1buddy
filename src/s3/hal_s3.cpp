@@ -172,6 +172,12 @@ void board::begin() {
       },
       free);
 #ifdef LED_RGB
+#ifdef FM1BUDDY_RECOVERY_IDF
+  // Even writing black retains an Arduino RMT channel on APB. Recovery needs
+  // both paired XTAL channels (all four S3 TX memory blocks). A recovery boot
+  // must never allocate the LED channel; its USB activity task is also absent.
+  if (recoveryFlag != RECOVERY_MODE)
+#endif
   rgbLedWrite(LED_RGB, 0, 0, 0);
 #endif
 #ifdef FM1BUDDY_SD_ONE_BIT
@@ -205,7 +211,7 @@ void board::begin() {
       logToSd = true;
     }
 #ifdef FM1BUDDY_RECOVERY_IDF
-    hal::log("=== recovery diagnostic v3: RMT + IDF, writes disabled ===");
+    hal::log("=== recovery diagnostic v4: RMT + IDF, writes disabled ===");
 #else
     hal::log("=== persistent recovery trace ===");
 #endif

@@ -32,6 +32,13 @@ static bool enabled[2];
 static DRAM_ATTR volatile uint32_t capturedEdges, capturedWord;
 static bool checkedPins;
 static uint32_t captureLoggedAt;
+static bool rmtOk(esp_err_t error, const char *operation, int pin = -1) {
+  if (error == ESP_OK)
+    return true;
+  trace("RMT: %s GPIO%d failed: %s (0x%X)", operation, pin,
+        esp_err_to_name(error), unsigned(error));
+  return false;
+}
 static void IRAM_ATTR captureClock(void *) {
   uint32_t count = capturedEdges;
   if (count < 16)
@@ -80,13 +87,13 @@ static bool setupKey() {
     c.mem_block_symbols = 64;
     c.trans_queue_depth = 1;
     c.flags.io_loop_back = true;
-    if (rmt_new_tx_channel(&c, &channels[i]) != ESP_OK)
+    if (!rmtOk(rmt_new_tx_channel(&c, &channels[i]), "new key channel", pin))
       return false;
     signalId[i] = GPIO.func_out_sel_cfg[pin].func_sel;
     rmt_copy_encoder_config_t e{};
-    if (rmt_new_copy_encoder(&e, &encoders[i]) != ESP_OK)
+    if (!rmtOk(rmt_new_copy_encoder(&e, &encoders[i]), "new key encoder", pin))
       return false;
-    if (rmt_enable(channels[i]) != ESP_OK)
+    if (!rmtOk(rmt_enable(channels[i]), "enable key channel", pin))
       return false;
     enabled[i] = true;
     gpio_set_drive_capability(pin, GPIO_DRIVE_CAP_0);
@@ -106,7 +113,7 @@ static bool setupKey() {
   rmt_sync_manager_config_t c{};
   c.tx_channel_array = channels;
   c.array_size = 2;
-  return rmt_new_sync_manager(&c, &syncer) == ESP_OK;
+  return rmtOk(rmt_new_sync_manager(&c, &syncer), "new key sync manager");
 }
 static bool packet() {
   for (int i = 0; i < 2; i++) {
@@ -188,8 +195,9 @@ static bool calibration() {
   c.flags.io_od_mode = true;
   c.flags.io_loop_back = true;
   rmt_copy_encoder_config_t e{};
-  if (rmt_new_tx_channel(&c, &channels[0]) != ESP_OK ||
-      rmt_new_copy_encoder(&e, &encoders[0]) != ESP_OK || rmt_enable(channels[0]) != ESP_OK)
+  if (!rmtOk(rmt_new_tx_channel(&c, &channels[0]), "new calibration channel", DP) ||
+      !rmtOk(rmt_new_copy_encoder(&e, &encoders[0]), "new calibration encoder", DP) ||
+      !rmtOk(rmt_enable(channels[0]), "enable calibration channel", DP))
     return false;
   enabled[0] = true;
   static rmt_symbol_word_t pulse{};
