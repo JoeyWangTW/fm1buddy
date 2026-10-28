@@ -149,6 +149,9 @@ int main(int argc, char** argv) {
     } else if (!strcmp(argv[i], "--sloop")) {
       fm1 = true;
       fake::sloopMode(true);
+    } else if (!strcmp(argv[i], "--felucca")) {
+      fm1 = true;
+      fake::feluccaMode(true);
     } else if (!strcmp(argv[i], "--clock")) {
       keys = true;
       fake::keysClock(true);

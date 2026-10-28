@@ -76,6 +76,7 @@ const sounds::Speaks* soundsSpeaks();  // what it speaks (0 if it hasn't been as
 void soundsReprobe();                  // ask it again (after something changed it): a probe job
 void soundsProbed();                   // a probe ended: what it said
 void sloopPage(lv_obj_t* page);        // SLOOP: backups, projects, sample slots
+void slotsPage(lv_obj_t* page);        // Felucca and the firmwares built on it: sample slots
 void syxPage(lv_obj_t* page);          // a .syx
 void setupPage(lv_obj_t* page);        // a setup
 void settingsPage(lv_obj_t* page);
