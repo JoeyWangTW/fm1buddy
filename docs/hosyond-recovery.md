@@ -67,5 +67,5 @@ The default upstream writer is not changed or declared validated by this work. T
   - ROM USB `4C4A:8057` and verified `WL82 / UBOOT1.00 / 1.00` INQUIRY.
   - Expected chip key `980F`, flash ID `856014`, size 1,048,576 bytes.
   - Two matching full reads, saved SD backup checksum verified, and `Backup verified. Nothing written to FM-1 flash.` / `job: recover done` at 22.1 seconds after the recovery reboot.
-- The new SD backup and metadata were copied privately to the Mac; its exact 1 MiB length and SHA-256 match the SD verification in the trace. The exported SD volume was safely ejected. The backup and raw trace are not published.
+- The new SD backup and metadata were copied privately to the Mac; its exact 1 MiB length and SHA-256 match the SD verification in the trace. The exported SD volume was safely ejected. The owner confirmed the FM-1 still boots SLOOP normally afterward. The backup and raw trace are not published.
 - This establishes one successful integrated ROM-entry/read/backup run. Integrated restore writes, other boards, repeated startup reliability and hardware cancellation remain unvalidated. Remote CI needs maintainer approval. No FM-1 write is authorized or enabled by this installation.
