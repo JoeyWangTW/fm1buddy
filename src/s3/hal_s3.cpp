@@ -4,6 +4,7 @@
 #include <Preferences.h>
 #include <SD_MMC.h>
 #include <WiFi.h>
+#include <dirent.h>
 #include <esp_crt_bundle.h>
 #include <esp_http_client.h>
 #include <mbedtls/platform.h>
@@ -275,6 +276,33 @@ void board::printLog() {
     }
     fclose(f);
   }
+}
+
+void board::printFile(const char* path) {
+  std::string p = std::string("/sdcard/") + path;
+  FILE* f = hal::sd() ? fopen(p.c_str(), "r") : 0;
+  if (!f) {
+    Serial.printf("no %s\n", path);
+    return;
+  }
+  char line[200];
+  while (fgets(line, sizeof line, f)) {
+    Serial.print(line);
+  }
+  fclose(f);
+}
+
+void board::printDir(const char* path) {
+  std::string p = std::string("/sdcard/") + path;
+  DIR* d = hal::sd() ? opendir(p.c_str()) : 0;
+  if (!d) {
+    Serial.printf("no %s\n", path);
+    return;
+  }
+  while (dirent* e = readdir(d)) {
+    Serial.printf("%s%s\n", e->d_name, e->d_type == DT_DIR ? "/" : "");
+  }
+  closedir(d);
 }
 
 uint32_t hal::millis() {

@@ -531,6 +531,7 @@ static Served serve(int d, const Pkg& pkg, uint32_t finish, uint32_t idleMs, Fm1
   midi::dev(d, v);
   uint32_t serial = v.serial, last = hal::millis(), dropped = v.dropped, lost = v.sysexLost;
   uint32_t prevAddr = ~0u, prevLen = 0, next = 0, again = 0, jumps = 0, odd = 0, bytes = 0;
+  uint32_t stuck = 0;  // an answer didn't all go: then its device waits for nothing, and idleMs is shorter
   Served s = {0, false, false, false};
   auto summary = [&](const char* how) {
     note("%s: %u answered, %u asked again, %u out of order, %u not understood", how, (unsigned)s.served,
@@ -550,7 +551,7 @@ static Served serve(int d, const Pkg& pkg, uint32_t finish, uint32_t idleMs, Fm1
     uint32_t n = midi::sysex(d, pkt);
     Request r;
     if (!n) {
-      if (hal::millis() - last > idleMs) {
+      if (hal::millis() - last > (stuck ? 15000 : idleMs)) {
         summary("nothing asked for a while");
         return s;
       }
@@ -563,6 +564,7 @@ static Served serve(int d, const Pkg& pkg, uint32_t finish, uint32_t idleMs, Fm1
       continue;
     }
     last = hal::millis();
+    stuck = 0;
     if (r.addr == FINISH_VERIFY || r.addr == FINISH_WRITE) {
       note("finish %08X asked", (unsigned)r.addr);
       if (!respond(d, r.addr, (const uint8_t*)OK, sizeof OK, 0)) {  // with its 0
@@ -597,22 +599,29 @@ static Served serve(int d, const Pkg& pkg, uint32_t finish, uint32_t idleMs, Fm1
       summary("stopped");
       return s;
     }
-    wait(10);
-    uint32_t before = hal::midiSent(d), start = hal::millis();
-    uint32_t w = respond(d, r.addr, data, r.len, r.fl);
-    if (!w) {
-      note("! the answer didn't go");
-      continue;  // it asks again, or goes
-    }
-    // that it went out on USB (not only queued): its packets, 3 SysEx bytes each
-    uint32_t want = (w + 2) / 3 * 4, out = 0;
-    while (hal::millis() - start < 1000 && ((out = hal::midiSent(d) - before) < want || midi::waiting(d))) {
-      wait(1);
-    }
-    uint32_t took = hal::millis() - start;
-    if (out < want || !s.served) {
-      note("%sanswer: %u of %u bytes out in %u ms", out < want ? "! " : "", (unsigned)out, (unsigned)want,
-           (unsigned)took);
+    // the answer, and that it went out on USB (not only queued): its packets, 3 SysEx bytes each. One that stuck
+    // part way was dropped (usb_s3.cpp): it goes again, whole (the loader starts over at its F0)
+    for (int t = 0; t < 2; t++) {
+      wait(t ? 100 : 10);
+      uint32_t before = hal::midiSent(d), start = hal::millis();
+      uint32_t w = respond(d, r.addr, data, r.len, r.fl);
+      if (!w) {
+        note("! the answer didn't go");
+        break;  // it asks again, or goes
+      }
+      uint32_t want = (w + 2) / 3 * 4, out = 0;
+      while (hal::millis() - start < 1500 && ((out = hal::midiSent(d) - before) < want || midi::waiting(d))) {
+        wait(1);
+      }
+      uint32_t took = hal::millis() - start;
+      if (out < want || !s.served || t) {
+        note("%sanswer%s: %u of %u bytes out in %u ms", out < want ? "! " : "", t ? " again" : "", (unsigned)out,
+             (unsigned)want, (unsigned)took);
+      }
+      if (out >= want) {
+        break;
+      }
+      stuck = hal::millis();
     }
     s.served++;
     if (cb) {

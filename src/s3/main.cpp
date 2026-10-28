@@ -172,7 +172,7 @@ void setup() {
 }
 
 // the serial console (tools/s3.py): "shot" sends the screen (SHOT w h, then w*h RGB565 pixels, little-endian),
-// "tap x y" touches it for a moment, "drag x1 y1 x2 y2" slides a finger across it, "log" prints the SD card's log, "host [script]" restarts as the USB host for 40 s (and runs script: board.h), "crash" crashes (the next start logs it), "usbmidi" restarts as USB MIDI for the
+// "tap x y" touches it for a moment, "drag x1 y1 x2 y2" slides a finger across it, "log" prints the SD card's log, "cat path" / "ls path" a file or folder on it, "host [script]" restarts as the USB host for 40 s (and runs script: board.h), "crash" crashes (the next start logs it), "usbmidi" restarts as USB MIDI for the
 // computer (until it sends the SysEx that brings the serial port back: computer_s3.cpp)
 static void console() {
   static char line[160];
@@ -191,6 +191,10 @@ static void console() {
     int x, y, x2, y2;
     if (!strcmp(line, "log")) {
       board::printLog();
+    } else if (!strncmp(line, "cat ", 4)) {
+      board::printFile(line + 4);
+    } else if (!strcmp(line, "ls") || !strncmp(line, "ls ", 3)) {
+      board::printDir(line[2] ? line + 3 : "");
     } else if (!strncmp(line, "host", 4) && (!line[4] || line[4] == ' ')) {
       board::hostTestStart(line[4] ? line + 5 : "");
     } else if (!strcmp(line, "crash")) {

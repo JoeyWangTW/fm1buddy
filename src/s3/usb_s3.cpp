@@ -13,6 +13,7 @@
 #include <freertos/task.h>
 
 #include <atomic>
+#include <string>
 
 #include "board.h"
 #include "hal.h"
@@ -29,6 +30,8 @@ static struct {
   alignas(4) uint16_t str[32];  // its product string, as it comes (UTF-16LE, after a 2-byte header)
   uint8_t outEp;                // its MIDI OUT endpoint (usbOut), and its packet size
   uint16_t outMps;
+  tusb_desc_endpoint_t outDesc;  // (to open it again: a send that stuck)
+  uint32_t reopenAt;             // a stuck send was dropped: its endpoint opens again then (0: it's open)
   volatile bool outBusy;
   alignas(4) uint8_t outBuf[64];
 } dev[MIDI_USB];
@@ -355,6 +358,9 @@ void tuh_midi_descriptor_cb(uint8_t idx, const tuh_midi_descriptor_cb_t* c) {
   if (idx < MIDI_USB) {
     dev[idx].outEp = c->desc_epout ? c->desc_epout->bEndpointAddress : 0;
     dev[idx].outMps = c->desc_epout ? tu_edpt_packet_size(c->desc_epout) : 0;
+    if (c->desc_epout) {
+      dev[idx].outDesc = *c->desc_epout;
+    }
   }
 }
 
@@ -367,6 +373,7 @@ void tuh_midi_mount_cb(uint8_t idx, const tuh_midi_mount_cb_t* m) {
   dev[idx].on = false;
   dev[idx].daddr = m->daddr;
   dev[idx].outBusy = false;
+  dev[idx].reopenAt = 0;
   memset(dev[idx].str, 0, sizeof dev[idx].str);
   // its name first (the FM-1 is known by it), then midi.h hears of it
   if (!tuh_descriptor_get_product_string(m->daddr, 0x0409, dev[idx].str, sizeof dev[idx].str, gotName, idx)) {
@@ -429,6 +436,17 @@ static uint32_t usbOut(int d, const uint8_t* p, uint32_t n) {
     return n;  // nowhere to go
   }
   dropped[d] = 0;
+  if (dev[d].reopenAt) {  // a stuck send was dropped: its endpoint again, once the channel is free (a frame)
+    if ((int32_t)(hal::millis() - dev[d].reopenAt) < 0) {
+      return 0;
+    }
+    dev[d].reopenAt = 0;
+    if (!tuh_edpt_open(dev[d].daddr, &dev[d].outDesc)) {
+      hal::log("usb: midi %d: its MIDI OUT didn't open again", d);
+      dev[d].outEp = 0;
+      return n;
+    }
+  }
   uint32_t k = 0;
   if (!dev[d].outBusy) {
     uint32_t most = (dev[d].outMps < sizeof dev[d].outBuf ? dev[d].outMps : sizeof dev[d].outBuf) / 4;
@@ -450,9 +468,19 @@ static uint32_t usbOut(int d, const uint8_t* p, uint32_t n) {
   if (!k) {
     if (!stuckSince[d]) {
       stuckSince[d] = hal::millis() | 1;
-    } else if (hal::millis() - stuckSince[d] > 2000) {
-      hal::log("usb: midi %d: nothing went out for 2 s", d);
-      stuckSince[d] = hal::millis() | 1;
+    } else if (hal::millis() - stuckSince[d] > 1000) {
+      // a send that doesn't go for a second won't: it's dropped (what's waiting too), so the channel is free and
+      // what comes next can go. The controller's state says whose it was: a channel still going is the device's NAK
+      static uint32_t resets[MIDI_USB];
+      if (resets[d]++ < 3) {
+        usbDiag(("midi " + std::to_string(d) + ": a send stuck for 1 s, dropped").c_str());
+      }
+      hcd_edpt_close(BOARD_TUH_RHPORT, dev[d].daddr, dev[d].outEp);  // (closing first: its channel halts, freed)
+      tuh_edpt_abort_xfer(dev[d].daddr, dev[d].outEp);
+      dev[d].outBusy = false;
+      dev[d].reopenAt = hal::millis() + 5;
+      stuckSince[d] = 0;
+      return n;
     }
     return 0;
   }
