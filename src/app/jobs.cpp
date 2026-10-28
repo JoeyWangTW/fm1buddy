@@ -45,12 +45,22 @@ static void progress(uint32_t d, uint32_t t) {
 
 static const char* NAMES[] = {"none", "hub", "download", "scan", "join", "install", "probe", "send", "voice", "keep", "restore", "export", "backup", "prepare", "recover", "sloop backup", "sloop restore", "sloop project", "sloop samples"};
 
+// a conversation in SysEx with the FM-1: routing stops meanwhile (its replies aren't for the other devices, and a
+// keyboard that doesn't take them in holds up the USB for everyone; nothing else lands in the middle of a message)
+static bool talks(Kind k) {
+  return k == PROBE || k == SEND || k == VOICE || k == KEEP || k == RESTORE ||
+         (k >= SLOOP_BACKUP && k <= SLOOP_SAMPLES);
+}
+
 static bool start(Kind k, void (*fn)(void*)) {
   if (running) {
     hal::log("job: %s: busy with %s", NAMES[k], NAMES[(int)kind]);
     return false;
   }
   hal::log("job: %s", NAMES[k]);
+  if (talks(k)) {
+    midi::thru = false;
+  }
   kind = k;
   step = IDLE;
   done = total = 0;
@@ -65,6 +75,9 @@ static void finish(bool good) {
   hal::log("job: %s %s%s%s", NAMES[(int)kind], good ? "done" : "failed", good ? "" : ": ", good ? "" : error.c_str());
   ok = good;
   step = IDLE;
+  if (talks((Kind)(int)kind)) {
+    midi::thru = true;
+  }
   running = false;
   finished++;
 }
