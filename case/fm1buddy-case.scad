@@ -58,12 +58,6 @@ module wall_hole(axis, c, w, h, r = 1) {
   else translate([c.x - w / 2, c.y + t / 2, c.z - h / 2]) rotate([90, 0, 0]) linear_extrude(t) offset(r) offset(-r) square([w, h]);
 }
 
-// a label engraved in a wall's outside: c is on that face; side is the face (y0, y1, x0, x1), so it reads from there
-module wall_label(t, c, side, halign = "center", size = 3) {
-  r = side == "y0" ? 0 : side == "y1" ? 180 : side == "x1" ? 90 : -90;
-  translate(c) rotate([90, 0, r]) linear_extrude(1.2, center = true) text(t, size = size, halign = halign, valign = "center", font = "Liberation Sans:style=Bold");
-}
-
 // --------------------------------------------------------------------------------------- the box ---
 // cavity [x0, y0] .. [x1, y1], height h (from the floor's top); a snap groove along both long sides
 module tray(c0, c1, h) {
@@ -115,12 +109,8 @@ module s3_base() {
     translate([S3_SD, sc1.y - 1, s_bz - 1.0]) rotate([-90, 0, 0]) cylinder(d = 9, h = wall + 2);
     // BOOT and RESET, for a paperclip from underneath
     for (b = S3_BTN) translate([b.x + 0.4, b.y, -floor_t - 1]) cylinder(d = 2.4, h = floor_t + 2);
-    // (seen from below, so mirrored)
-    for (t = [["BOOT", S3_BTN[0]], ["RST", S3_BTN[1]]]) translate([t[1].x + 2.5, t[1].y, -floor_t - eps]) linear_extrude(0.6) mirror([1, 0, 0]) text(t[0], size = 2, halign = "right", valign = "center", font = "Liberation Sans:style=Bold");
     // thin under the RGB LED, so it shows through
     translate([S3_LED.x - 4, S3_LED.y - 4, -floor_t + 0.6]) cube([8, 8, floor_t]);
-    wall_label("HUB+POWER", [sc0.x - wall, S3_USB.x, usb_z + 7], "x0", size = 2.5);
-    wall_label("SD", [S3_SD - 12, sc1.y + wall, s_bz - 1.0], "y1");
   }
 }
 
