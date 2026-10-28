@@ -16,6 +16,9 @@
 #include <string>
 
 #include "board.h"
+#ifdef FM1BUDDY_RECOVERY_IDF
+#include "recovery/recovery.h"
+#endif
 #include "hal.h"
 #include "host/hcd.h"  // (hcd_edpt_close: storageReset)
 #include "midi.h"
@@ -286,15 +289,30 @@ static bool storageTry() {
 }
 
 bool hal::storageSeen(uint16_t vid, uint16_t pid) {
+#ifdef FM1BUDDY_RECOVERY_IDF
+  if (hal::recoveryMode()) {
+    return recovery::seen(vid, pid);
+  }
+#endif
   return stor.daddr && stor.vid == vid && stor.pid == pid;
 }
 
 bool hal::storageThere(uint16_t vid, uint16_t pid) {
+#ifdef FM1BUDDY_RECOVERY_IDF
+  if (hal::recoveryMode()) {
+    return recovery::present(vid, pid);
+  }
+#endif
   return stor.daddr && stor.in && stor.out && stor.vid == vid && stor.pid == pid;
 }
 
 bool hal::storageCommand(const uint8_t* cdb, uint8_t cdbLen, bool in, uint8_t* buf, uint32_t len, uint32_t* got,
                          uint32_t ms) {
+#ifdef FM1BUDDY_RECOVERY_IDF
+  if (hal::recoveryMode()) {
+    return recovery::command(cdb, cdbLen, in, buf, len, got);
+  }
+#endif
   cmd.cdb = cdb, cmd.cdbLen = cdbLen > 16 ? 16 : cdbLen, cmd.in = in, cmd.buf = buf, cmd.len = len, cmd.got = 0, cmd.ms = ms, cmd.ok = false;
   cmd.state = 1;
   for (uint32_t start = millis(); cmd.state != 2; delay(1)) {
@@ -510,6 +528,11 @@ int board::usbSlot(uint8_t daddr) {
 }
 
 bool hal::usbHost() {
+#ifdef FM1BUDDY_RECOVERY_IDF
+  if (hal::recoveryMode()) {
+    return recovery::present(0x4C4A, 0x8057);
+  }
+#endif
   return hostOn;
 }
 
@@ -517,6 +540,12 @@ bool hal::usbHost() {
 static std::atomic<int> restart{0};  // usbRestart: 1 asked, 2 done
 
 void hal::usbRestart() {
+#ifdef FM1BUDDY_RECOVERY_IDF
+  if (hal::recoveryMode()) {
+    recovery::stop();
+    return;
+  }
+#endif
   if (!hostOn) {
     return;
   }
@@ -571,5 +600,10 @@ static void hostTask(void*) {
 }
 
 void board::usbHostBegin() {
+#ifdef FM1BUDDY_RECOVERY_IDF
+  if (hal::recoveryMode()) {
+    return;  // IDF owns the controller for this boot
+  }
+#endif
   xTaskCreatePinnedToCore(hostTask, "usbhost", 8192, 0, 5, 0, 1);
 }

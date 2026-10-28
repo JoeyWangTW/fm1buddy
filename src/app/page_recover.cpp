@@ -72,7 +72,7 @@ void ui::recoverPage(lv_obj_t* page) {
     }
   }
 #ifdef FM1BUDDY_RECOVERY_READ_ONLY
-  header(page, "FM-1 read-only diagnostic");
+  header(page, "Read-only recovery");
 #else
   header(page, LV_SYMBOL_WARNING "  Recovering the FM-1");
 #endif
@@ -221,7 +221,7 @@ static void startTick() {
 void ui::recoverStartPage(lv_obj_t* page) {
   const Theme& t = theme();
 #ifdef FM1BUDDY_RECOVERY_READ_ONLY
-  header(page, "FM-1 recovery diagnostic", settingsPage);
+  header(page, "Recovery test", settingsPage);
 #else
   header(page, "Recover the FM-1", settingsPage);
 #endif

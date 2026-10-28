@@ -188,7 +188,14 @@ void board::begin() {
     hal::log("fm1buddy: USB disk mode (%u MB)", (unsigned)((uint64_t)SD_MMC.numSectors() * SD_MMC.sectorSize() >> 20));
     return;
   }
-  recovery = recoveryFlag == RECOVERY_MODE && sdOk;
+  // a computer on the USB-C port (it sends start-of-frames): stay its serial port. Else: the USB host
+  // (board::usbBegin), and the log goes to the SD card
+  bool test = hostTest == HOST_TEST;
+  hostTest = 0;
+  for (uint32_t t = millis(); !test && millis() - t < 1500 && !computer; delay(10)) {
+    computer = HWCDC::isPlugged();
+  }
+  recovery = recoveryFlag == RECOVERY_MODE && sdOk && !computer;
   recoveryFlag = 0;
   if (recovery) {  // the FM-1 is on the port (not a computer): its USB lines are the key's (key_s3.cpp)
     mkdir("/sdcard/fm1buddy", 0777);
@@ -197,17 +204,14 @@ void board::begin() {
       fclose(f);
       logToSd = true;
     }
-    hal::log("=== persistent recovery trace v2 ===");
+#ifdef FM1BUDDY_RECOVERY_IDF
+    hal::log("=== recovery diagnostic v3: RMT + IDF, writes disabled ===");
+#else
+    hal::log("=== persistent recovery trace ===");
+#endif
     hal::log("fm1buddy: recovery mode, last reset: %d", (int)esp_reset_reason());
     logCrash();
     return;
-  }
-  // a computer on the USB-C port (it sends start-of-frames): stay its serial port. Else: the USB host
-  // (board::usbBegin), and the log goes to the SD card
-  bool test = hostTest == HOST_TEST;
-  hostTest = 0;
-  for (uint32_t t = millis(); !test && millis() - t < 1500 && !computer; delay(10)) {
-    computer = HWCDC::isPlugged();
   }
   if ((!computer || hal::computerMidi()) && sdOk) {  // (USB MIDI for a computer: no serial port either)
     mkdir("/sdcard/fm1buddy", 0777);

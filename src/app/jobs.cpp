@@ -601,7 +601,13 @@ static void recoverJob(void*) {
   hal::log("recover: %s, %u bytes", from.c_str(), (unsigned)want.size());
   step = KEYING;
   hal::keyStart();
+  uint32_t keyStarted = hal::millis();
   while (hal::keyState() != hal::KEY_HOST) {
+    if (hal::keyState() == hal::KEY_FAILED || hal::millis() - keyStarted >= 65000) {
+      error = "Recovery key or USB detection failed. Nothing written; save the recovery log.";
+      hal::log("recover: %s", error.c_str());
+      return finish(false);
+    }
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
   step = BOOT_LOADER;

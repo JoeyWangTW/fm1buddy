@@ -1,3 +1,4 @@
+#ifndef FM1BUDDY_RECOVERY_IDF
 // Recovery mode's key (hal.h keyStart): before the USB host starts, the USB-C port's two lines are plain GPIOs here,
 // and the FM-1's chip gets JieLi's USB_KEY on them as it's switched on: its ROM then starts its boot loader instead of
 // the firmware. As FM-1-transporter (kurogedelic, MIT) sends it from an RP2040 (src/recovery.c, pio/usb_key.pio, and
@@ -239,3 +240,5 @@ void hal::keyStart() {
 int hal::keyState() {
   return state;
 }
+
+#endif

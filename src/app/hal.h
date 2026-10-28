@@ -117,7 +117,8 @@ enum KeyState { KEY_IDLE,      // not started
                 KEY_OFF,       // waiting for the FM-1 to be off (something holds the USB lines)
                 KEY_SENDING,   // the key, again and again: switch it on
                 KEY_ANSWERED,  // it took the key: its boot loader is starting
-                KEY_HOST };    // the USB host is up, for its boot loader
+                KEY_HOST,      // the USB host is up, for its boot loader
+                KEY_FAILED };  // failed key / enumeration; reset before another attempt
 int keyState();
 
 // the touchscreen's fingers now (up to 2), for the touch controller: where (screen pixels), which finger (it keeps

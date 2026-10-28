@@ -22,3 +22,8 @@ PlatformIO downloads these when it builds; their license notices apply to the bu
 | [ArduinoJson](https://github.com/bblanchon/ArduinoJson)                                             | MIT                  |
 | [TinyUSB](https://github.com/hathach/tinyusb)                                                       | MIT                  |
 | [NimBLE-Arduino](https://github.com/h2zero/NimBLE-Arduino), Apache NimBLE                           | Apache-2.0           |
+
+
+## Experimental recovery backend
+
+`src/s3/recovery/key_rmt.cpp`, `usb_idf.cpp`, and `policy.h` are adapted from the Hosyond ESP32-S3 Transporter experiment, itself based on kurogedelic/FM-1-transporter commit `a7fb5e8ac692c528f8ed29e325911a3f4b8111d6`. These files retain MIT licensing; the notice is in `src/s3/recovery/LICENSE`. The fm1buddy integration is GPL-3.0-only. No JieLi helper, firmware package or device dump is bundled.

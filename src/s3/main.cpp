@@ -10,6 +10,7 @@
 #include "midi.h"
 #include "record.h"
 #include "ui.h"
+#include "uboot.h"
 
 #define W 320
 #define H 240
@@ -165,8 +166,14 @@ void setup() {
   lv_indev_set_read_cb(in, readTouch);
 
   hal::log("boot: app");
+  // Recovery jobs can start during ui::begin(): release USB serial first.
+  if (hal::recoveryMode()) {
+    board::usbBegin();
+  }
   ui::begin();
-  board::usbBegin();
+  if (!hal::recoveryMode()) {
+    board::usbBegin();
+  }
   hal::log("fm1buddy: up, %u KB internal RAM free, %u KB PSRAM free",
            (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024), (unsigned)(ESP.getFreePsram() / 1024));
 }
@@ -189,7 +196,14 @@ static void console() {
     line[n] = 0;
     n = 0;
     int x, y, x2, y2;
-    if (!strcmp(line, "log")) {
+    if (!strcmp(line, "recoveryinfo")) {
+#ifdef FM1BUDDY_RECOVERY_IDF
+      Serial.printf("RECOVERY diagnostic-v3 backend=RMT-IDF writes=DISABLED sd=%d helper=%d computer=%d psram=%u recovery=%d key=%d\n",
+                    hal::sd() != nullptr, uboot::haveLoader(), hal::onComputer(), ESP.getPsramSize(), hal::recoveryMode(), hal::keyState());
+#else
+      Serial.println("RECOVERY backend=upstream");
+#endif
+    } else if (!strcmp(line, "log")) {
       board::printLog();
     } else if (!strncmp(line, "cat ", 4)) {
       board::printFile(line + 4);
