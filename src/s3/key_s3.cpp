@@ -207,7 +207,7 @@ static void keyTask(void*) {
       alive = false;
     }
     if (millis() - said > 5000) {
-      hal::log("key: %u packets", (unsigned)n);
+      hal::log("key: %u packets; D+ %d, D- %d, D- probe rose %d", (unsigned)n, (int)dp(), (int)dm(), (int)alive);
       said = millis();
     }
   }

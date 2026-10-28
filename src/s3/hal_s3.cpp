@@ -31,6 +31,8 @@ static RTC_NOINIT_ATTR char hostScript[120];
 static uint32_t hostTestUntil;
 #define LOG_FILE "/sdcard/fm1buddy/log.txt"
 #define LOG_PREV "/sdcard/fm1buddy/log-1.txt"  // the run before
+#define LOG_RECOVERY "/sdcard/fm1buddy/recovery.txt"  // append-only; ordinary resets never rotate it
+static const char* activeLog = LOG_FILE;
 
 // a crash, kept through the restart (RTC memory) and logged then: decode its addresses against the build's
 // firmware.elf (xtensa-esp32s3-elf-addr2line -pfiaC -e .pio/build/cyd-s3/firmware.elf ADDR...)
@@ -94,7 +96,7 @@ static TaskHandle_t mainTask;
 static void writeLine(const char* line, uint32_t ms) {
   if (!logToSd) {
     Serial.println(line);
-  } else if (FILE* f = fopen(LOG_FILE, "a")) {
+  } else if (FILE* f = fopen(activeLog, "a")) {
     fprintf(f, "%7.1f %s\n", ms / 1000.0, line);
     fclose(f);
   }
@@ -190,9 +192,12 @@ void board::begin() {
   recoveryFlag = 0;
   if (recovery) {  // the FM-1 is on the port (not a computer): its USB lines are the key's (key_s3.cpp)
     mkdir("/sdcard/fm1buddy", 0777);
-    if (newLog()) {
+    activeLog = LOG_RECOVERY;
+    if (FILE* f = fopen(activeLog, "a")) {
+      fclose(f);
       logToSd = true;
     }
+    hal::log("=== persistent recovery trace v2 ===");
     hal::log("fm1buddy: recovery mode, last reset: %d", (int)esp_reset_reason());
     logCrash();
     return;
@@ -269,7 +274,7 @@ const char* board::hostTestScript() {
 }
 
 void board::printLog() {
-  for (const char* p : {LOG_PREV, LOG_FILE}) {
+  for (const char* p : {LOG_RECOVERY, LOG_PREV, LOG_FILE}) {
     FILE* f = fopen(p, "r");
     if (!f) {
       continue;
