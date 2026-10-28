@@ -15,6 +15,7 @@
 using namespace ui;
 
 static int dev = -1;           // the device
+static bool byHand;            // it was picked in the list (else it's picked again as devices come and go)
 static uint32_t devSerial;     // its mount
 static uint32_t probedSerial;  // the mount the chips are about
 static sounds::Speaks speaks;
@@ -48,18 +49,29 @@ void ui::soundsProbed() {
   }
 }
 
+// the one picked in the list while it's there; else the FM-1 (one that said so, else one by its USB name), else the
+// first. Asked again each time: on a hub, a keyboard can be there before the FM-1 has said what it is
 static void pickDevice() {
   midi::Dev v;
-  if (dev >= 0 && midi::dev(dev, v) && v.serial == devSerial) {
+  bool there = dev >= 0 && midi::dev(dev, v) && v.serial == devSerial;
+  if (there && (byHand || recording || (jobs::running && jobs::device == dev))) {
     return;
   }
-  dev = fm1::current();
-  for (int d = 0; dev < 0 && d < MIDI_TOUCH; d++) {
-    if (midi::dev(d, v)) {
-      dev = d;
-    }
+  byHand = false;
+  int best = fm1::current();
+  for (int d = 0; best < 0 && d < MIDI_TOUCH; d++) {  // Felucca's USB id (and the firmwares on it), or its name
+    best = midi::dev(d, v) && (v.vid == 0x1209 || strcasestr(v.name, "fm-1") || strcasestr(v.name, "felucca")) ? d : -1;
   }
-  devSerial = dev >= 0 && midi::dev(dev, v) ? v.serial : 0;
+  for (int d = 0; best < 0 && d < MIDI_TOUCH; d++) {  // a name an FM-1 may have ("USB-MIDI": keyboards too)
+    best = fm1::candidate(d) ? d : -1;
+  }
+  for (int d = 0; best < 0 && d < MIDI_TOUCH; d++) {
+    best = midi::dev(d, v) ? d : -1;
+  }
+  if (best != dev || !there) {
+    dev = best;
+    devSerial = dev >= 0 && midi::dev(dev, v) ? v.serial : 0;
+  }
 }
 
 static void finishRecording(bool keep) {
@@ -272,6 +284,7 @@ static void pickChanged(lv_event_t* e) {
       }
       dev = d;
       devSerial = v.serial;
+      byHand = true;
     }
   }
   go(soundsPage);
