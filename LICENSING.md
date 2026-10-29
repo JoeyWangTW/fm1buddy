@@ -24,6 +24,10 @@ PlatformIO downloads these when it builds; their license notices apply to the bu
 | [NimBLE-Arduino](https://github.com/h2zero/NimBLE-Arduino), Apache NimBLE                           | Apache-2.0           |
 
 
-## Experimental recovery backend
+## Hosyond recovery backend and stock policy
 
 `src/s3/recovery/key_rmt.cpp`, `usb_idf.cpp`, and `policy.h` are adapted from the Hosyond ESP32-S3 Transporter experiment, itself based on kurogedelic/FM-1-transporter commit `a7fb5e8ac692c528f8ed29e325911a3f4b8111d6`. These files retain MIT licensing; the notice is in `src/s3/recovery/LICENSE`. The fm1buddy integration is GPL-3.0-only. No JieLi helper, firmware package or device dump is bundled.
+
+`src/app/stock_restore.c` and `stock_restore.h` retain the MIT-licensed fixed-stock policy from the same ESP32-S3 experiment; its wire protocol follows FM-1-transporter. The GPL-3.0-only `src/s3/recovery/guarded.cpp` and `guarded.h` integrate that policy with fm1buddy's UI, backup and transport layers.
+
+`tools/prepare_v15.py` adapts the package decoder from [charlesvestal/fm1-x0x, tools/fm1_rescue.py](https://github.com/charlesvestal/fm1-x0x/blob/70440e57c2b1390c93569baa55b8e6b7eacbabc2/tools/fm1_rescue.py), commit `70440e57c2b1390c93569baa55b8e6b7eacbabc2`, under GPL-3.0-only. It prepares bundles locally and does not distribute stock firmware or backups.

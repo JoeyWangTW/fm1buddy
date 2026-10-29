@@ -23,7 +23,7 @@ All without a computer/phone/etc:
 - Sample slots on Felucca and the firmwares built on it that kept them (Skiff, JIANT, Melodee, ...): load a folder of WAVs (or one WAV) from `/sloop/samples` into USR1-3, for its SAMPLE engine. fomajam's drum kits load from setups
 - Act as USB disk (to manage files on SD)
 - MIDI-out, turn FM1 into a sequencer (on supported firmware, like [fomajam](https://github.com/konsumer/fomajam))
-- FM1 Recover: write a firmware or backup to an FM-1 that won't start, like [FM-1-transporter](https://github.com/kurogedelic/FM-1-transporter) with no wiring needed (when people say "use RP2040"). Not tested on a real FM-1 yet
+- FM1 Recover: enter the FM-1 recovery ROM over USB, like [FM-1-transporter](https://github.com/kurogedelic/FM-1-transporter), with no extra wiring. The opt-in Hosyond profile has completed a verified stock-V15 restore; the default profile's arbitrary firmware/backup restore remains unvalidated on hardware. See [recovery profiles](#hosyond-esp32-s3-recovery).
 - Automation options, great for LLM development: switch it into USB MIDI mode from the serial console (`tools/s3.py usbmidi`), and back with a "magic" SysEx message (`tools/s3.py serial`), so tests can run on the real thing.
 
 It should be useful for most firmware, depending on what it supports, but it has some extra stuff that is specific to [fomajam](https://github.com/konsumer/fomajam):
@@ -98,16 +98,20 @@ site/      the installer page (GitHub Pages, with the latest release)
 case/      the 3D-printed case (OpenSCAD); tools/cases.sh makes its STLs
 ```
 
-## Experimental Hosyond recovery diagnostic
+## Hosyond ESP32-S3 recovery
 
-The opt-in `hosyond-diagnostic` build ports the RMT key and Espressif USB-host path from an ESP32-S3 recovery app that completed one stock-V15 restoration on a Hosyond ES3C28P. **This fm1buddy integration is read-only.** One integrated test on a working FM-1 running SLOOP entered the recovery ROM, read the full flash twice with matching results, and verified the saved backup on SD and Mac. Repeated startup reliability and integrated restore writes remain unvalidated. It does not establish that upstream fm1buddy's restore path works. Normal firmware installation and recovery flash writes are disabled in this profile.
+Two opt-in profiles support the Hosyond / LCDWiki ES3C28P ESP32-S3 N16R8 display board. Recovery uses paired RMT channels and Espressif's USB host; normal MIDI, audio, Hub and computer/disk operation keep TinyUSB.
 
-See [the integration notes and test procedure](docs/hosyond-recovery.md). The ordinary `cyd-s3` build retains its existing TinyUSB recovery backend.
+| Build profile | Recovery | Hub installs |
+| --- | --- | --- |
+| `cyd-s3` (default) | Existing TinyUSB backend | Existing installer |
+| `hosyond-diagnostic` | Read-only ROM entry and verified full backup | Disabled |
+| `hosyond-recovery` | Verified backup, V15 dry run and guarded stock-V15 restore | Enabled, with a battery check before starting |
+
+On one Hosyond board and FM-1, the integrated recovery completed a zero-write dry run and a stock restore with all 143 changed sectors and the full 1 MiB flash verified. The owner also reports a successful Hub install. These results do not establish support for other ESP32-S3 boards or validate the default recovery writer.
+
+Start with the [hardware and diagnostic guide](docs/hosyond-recovery.md), then [stock bundle preparation and restore controls](docs/hosyond-restore.md). The [validation record](docs/hosyond-validation.md) distinguishes captured evidence, user reports and remaining gaps. Flashing can leave the FM-1 unable to start if power or communication fails; keep verified private backups and both devices charged.
 
 ## License
 
 GPL-3.0-only. Credits and third-party parts: [LICENSING.md](LICENSING.md).
-
-## Hosyond Hub installs and stock restore
-
-The `hosyond-recovery` profile enables Hub installs and guarded stock-V15 restoration using the RMT/IDF backend. It requires a fresh verified backup, preserves protected regions, and refuses automatic erase/write retries. See [setup, controls and validation limits](docs/hosyond-restore.md). The separate `hosyond-diagnostic` profile remains read-only. The new profile’s actual write paths still need hardware validation.
